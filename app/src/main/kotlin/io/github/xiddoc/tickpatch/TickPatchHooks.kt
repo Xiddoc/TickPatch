@@ -80,15 +80,16 @@ class TickPatchHooks : IXposedHookLoadPackage {
         runCatching {
             val identity = AndroidAppIdentity.of(app.packageManager, app.packageName)
 
-            // Select the bundled map by the running version_code; the signer
-            // guard inside fromRegistry verifies TickTick's real signing cert
-            // against the map's signer_sha256 (fail-closed).
-            val map = BundledMaps.load(MAP_FILE)
-            val rosetta = RosettaXposed.fromRegistry(MapRegistry.of(map), identity, classLoader)
+            // Build a registry from every bundled map and let Rosetta select the
+            // one matching the running version_code. The signer guard inside
+            // fromRegistry verifies TickTick's real signing cert against the
+            // selected map's signer_sha256 (fail-closed).
+            val maps = BUNDLED_MAPS.map { BundledMaps.load(it) }
+            val rosetta = RosettaXposed.fromRegistry(MapRegistry.of(*maps.toTypedArray()), identity, classLoader)
             if (rosetta == null) {
                 XposedBridge.log(
                     "TickPatch: no bundled map for version_code ${identity.versionCode} " +
-                        "(${identity.versionName}); this build ships ${map.versionCode}. " +
+                        "(${identity.versionName}); this build ships ${maps.map { it.versionCode }}. " +
                         "Pro override inactive — add a map for this TickTick version.",
                 )
                 return
@@ -150,8 +151,12 @@ class TickPatchHooks : IXposedHookLoadPackage {
     private companion object {
         const val TARGET_PACKAGE = "com.ticktick.task"
 
-        /** Bundled map under app/src/main/resources/maps/. Matches TickTick 8.0.8.1. */
-        const val MAP_FILE = "8081.json"
+        /**
+         * Bundled maps under app/src/main/resources/maps/, one per supported
+         * TickTick version_code (8.0.8.0 / 8.0.8.1). Rosetta selects the one
+         * matching the running app; keep in sync with tools/generate-map.py.
+         */
+        val BUNDLED_MAPS = listOf("8080.json", "8081.json")
 
         const val USER_CLASS = "com.ticktick.task.data.User"
         const val PRO_HELPER_CLASS = "com.ticktick.task.helper.pro.ProHelper"

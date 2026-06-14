@@ -1,0 +1,65 @@
+name: Build APK
+
+# Builds the TickPatch LSPosed module APK. rosetta-xposed is consumed as a
+# Gradle composite build, so CI checks it out as a sibling directory next to
+# this repo before invoking Gradle.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Check this repo out into a subdirectory so rosetta-xposed can sit
+      # beside it — settings.gradle.kts does includeBuild("../rosetta-xposed").
+      - name: Check out TickPatch
+        uses: actions/checkout@v4
+        with:
+          path: TickPatch
+
+      # The Rosetta resolver library (composite build dependency). Pinned to
+      # master. If rosetta-xposed is PRIVATE, add a PAT with repo read access as
+      # the ROSETTA_XPOSED_PAT secret; for a public repo the default token works.
+      - name: Check out rosetta-xposed (composite build)
+        uses: actions/checkout@v4
+        with:
+          repository: Xiddoc/rosetta-xposed
+          ref: master
+          path: rosetta-xposed
+          token: ${{ secrets.ROSETTA_XPOSED_PAT || github.token }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # ubuntu-latest ships the Android SDK preinstalled (ANDROID_HOME is set),
+      # so no SDK provisioning step is needed.
+      - name: Sanity-check bundled maps are valid JSON
+        working-directory: TickPatch
+        run: |
+          for m in app/src/main/resources/maps/*.json; do
+            echo "validating $m"
+            python3 -m json.tool "$m" > /dev/null
+          done
+
+      - name: Build debug APK
+        working-directory: TickPatch
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tickpatch-debug-apk
+          path: TickPatch/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

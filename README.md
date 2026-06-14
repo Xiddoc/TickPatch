@@ -57,7 +57,7 @@ TickPatch/
 │     │  ├── RosettaLegacyHooker.kt ← Hooker seam (XposedBridge)
 │     │  └── Prefs.kt               ← the cross-process toggle contract
 │     ├── assets/xposed_init        ← registers TickPatchHooks
-│     └── resources/maps/8081.json  ← bundled Rosetta map (TickTick 8.0.8.1)
+│     └── resources/maps/           ← bundled Rosetta maps (TickTick 8.0.8.0 / 8.0.8.1)
 ├── tools/generate-map.py           ← regenerates the map from rosetta-maps-private
 └── settings.gradle.kts             ← composite-builds ../rosetta-xposed
 ```
@@ -101,10 +101,13 @@ python3 tools/generate-map.py
 4. Force-stop and reopen TickTick — Pro features unlock. Flip the switch off to
    revert.
 
-> The bundled map targets **TickTick 8.0.8.1 (`version_code` 8081)**. On any
-> other version the module logs that it has no matching map and stays inactive
-> — add that version's map to `resources/maps/` (and `tools/generate-map.py`)
-> to extend it.
+> The bundled maps target **TickTick 8.0.8.0 and 8.0.8.1** (`version_code`
+> 8080 / 8081) — the TickTick versions currently mapped in
+> `rosetta-maps-private`. Rosetta picks the one matching the installed app; on
+> any other version the module logs that it has no matching map and stays
+> inactive. To extend coverage, add that version's map to `rosetta-maps-private`,
+> list its `version_code` in `tools/generate-map.py` and `TickPatchHooks`, and
+> regenerate.
 
 ## Disclaimer
 

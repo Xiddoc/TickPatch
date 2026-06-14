@@ -43,12 +43,13 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parent
 APP_PKG = "com.ticktick.task"
-VERSION_CODE = 8081
+# Every TickTick version_code TickPatch bundles a map for. Each must exist in
+# rosetta-maps-private and carry the User / ProHelper Pro gate. Add a version
+# here (and check it has the gate) to extend coverage.
+VERSION_CODES = (8080, 8081)
 
-SOURCE_MAP = (
-    REPO.parent / "rosetta-maps-private" / "maps" / APP_PKG / f"{VERSION_CODE}.json"
-)
-OUT_MAP = REPO / "app" / "src" / "main" / "resources" / "maps" / f"{VERSION_CODE}.json"
+MAPS_DIR = REPO.parent / "rosetta-maps-private" / "maps" / APP_PKG
+OUT_DIR = REPO / "app" / "src" / "main" / "resources" / "maps"
 
 # Fields the strict schema_version: 4 client model does NOT carry. They are
 # authoring/provenance hints meaningful only inside rosetta-maps; the consumed
@@ -82,15 +83,17 @@ def strip(d: dict, keys) -> dict:
     return {k: v for k, v in d.items() if k not in keys}
 
 
-def main() -> int:
-    if not SOURCE_MAP.exists():
+def convert(version_code: int) -> int:
+    source_map = MAPS_DIR / f"{version_code}.json"
+    out_map = OUT_DIR / f"{version_code}.json"
+    if not source_map.exists():
         sys.stderr.write(
-            f"error: source map not found at {SOURCE_MAP}\n"
+            f"error: source map not found at {source_map}\n"
             "Check out rosetta-maps-private as a sibling of this repo.\n"
         )
         return 1
 
-    src = json.loads(SOURCE_MAP.read_text())
+    src = json.loads(source_map.read_text())
 
     out = {
         "schema_version": 4,
@@ -122,7 +125,7 @@ def main() -> int:
     for fqn, methods in METHOD_INJECTIONS.items():
         if fqn not in classes:
             sys.stderr.write(
-                f"error: expected class {fqn} in source map but it is absent; "
+                f"error: expected class {fqn} in {source_map.name} but it is absent; "
                 "the Pro gate cannot be mapped.\n"
             )
             return 1
@@ -130,12 +133,20 @@ def main() -> int:
 
     out["classes"] = classes
 
-    OUT_MAP.parent.mkdir(parents=True, exist_ok=True)
-    OUT_MAP.write_text(json.dumps(out, indent=2) + "\n")
+    out_map.parent.mkdir(parents=True, exist_ok=True)
+    out_map.write_text(json.dumps(out, indent=2) + "\n")
     print(
-        f"wrote {OUT_MAP.relative_to(REPO)} "
+        f"wrote {out_map.relative_to(REPO)} "
         f"({len(classes)} classes, {sum(len(m) for m in METHOD_INJECTIONS.values())} injected methods)"
     )
+    return 0
+
+
+def main() -> int:
+    for version_code in VERSION_CODES:
+        rc = convert(version_code)
+        if rc != 0:
+            return rc
     return 0
 
 
