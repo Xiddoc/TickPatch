@@ -18,4 +18,11 @@ internal object Prefs {
 
     /** Boolean: when true, the hook forces TickTick's Pro gate open. */
     const val KEY_PRO_ENABLED = "pro_enabled"
+
+    /**
+     * Explicit broadcast action MainActivity sends to ask the in-app hook to
+     * end TickTick's process (a cooperative "force-stop"; the UI then relaunches
+     * it). Received by the receiver TickPatchHooks registers inside TickTick.
+     */
+    const val ACTION_RESTART = "io.github.xiddoc.tickpatch.ACTION_RESTART_TICKTICK"
 }

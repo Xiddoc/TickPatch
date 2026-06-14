@@ -153,6 +153,14 @@
         "isPro": {
           "obfuscated": "isPro",
           "signature": "()Z"
+        },
+        "isActiveTeamUser": {
+          "obfuscated": "isActiveTeamUser",
+          "signature": "()Z"
+        },
+        "getProType": {
+          "obfuscated": "getProType",
+          "signature": "()I"
         }
       }
     },

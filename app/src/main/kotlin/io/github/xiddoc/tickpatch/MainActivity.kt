@@ -14,12 +14,15 @@ package io.github.xiddoc.tickpatch
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.Gravity
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
+import android.widget.Toast
 
 class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,6 +54,13 @@ class MainActivity : Activity() {
             }
         status.text = statusText(toggle.isChecked)
 
+        val restart =
+            Button(this).apply {
+                text = getString(R.string.restart_label)
+                setPadding(0, 24, 0, 0)
+                setOnClickListener { restartTickTick(it) }
+            }
+
         setContentView(
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -58,6 +68,7 @@ class MainActivity : Activity() {
                 setPadding(64, 96, 64, 64)
                 addView(toggle)
                 addView(status)
+                addView(restart)
                 addView(blurb)
             },
         )
@@ -65,6 +76,26 @@ class MainActivity : Activity() {
 
     private fun statusText(enabled: Boolean): String =
         getString(if (enabled) R.string.status_on else R.string.status_off)
+
+    /**
+     * Cooperative force-restart of TickTick: a normal app can't force-stop
+     * another, so we ask our in-process hook to kill TickTick (the explicit,
+     * package-targeted [Prefs.ACTION_RESTART] broadcast), then relaunch it after
+     * a short delay. The relaunch is started from THIS foreground activity (not
+     * the killed process) to satisfy background-activity-start limits. If
+     * TickTick wasn't running, the broadcast is a no-op and we simply launch it.
+     */
+    private fun restartTickTick(view: android.view.View) {
+        sendBroadcast(Intent(Prefs.ACTION_RESTART).setPackage(TICKTICK_PACKAGE))
+        val launch = packageManager.getLaunchIntentForPackage(TICKTICK_PACKAGE)
+        if (launch == null) {
+            Toast.makeText(this, R.string.ticktick_not_installed, Toast.LENGTH_SHORT).show()
+            return
+        }
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        Toast.makeText(this, R.string.restarting, Toast.LENGTH_SHORT).show()
+        view.postDelayed({ startActivity(launch) }, RELAUNCH_DELAY_MS)
+    }
 
     /**
      * Open the toggle store `MODE_WORLD_READABLE` so the hook inside TickTick's
@@ -81,4 +112,11 @@ class MainActivity : Activity() {
         } catch (_: SecurityException) {
             getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE)
         }
+
+    private companion object {
+        const val TICKTICK_PACKAGE = "com.ticktick.task"
+
+        /** Pause after the kill broadcast before relaunching, so the old process is gone. */
+        const val RELAUNCH_DELAY_MS = 900L
+    }
 }

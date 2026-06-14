@@ -57,7 +57,7 @@ TickPatch/
 │     │  ├── RosettaLegacyHooker.kt ← Hooker seam (XposedBridge)
 │     │  └── Prefs.kt               ← the cross-process toggle contract
 │     ├── assets/xposed_init        ← registers TickPatchHooks
-│     └── resources/maps/           ← bundled Rosetta maps (TickTick 8.0.8.0 / 8.0.8.1)
+│     └── resources/maps/           ← bundled Rosetta maps + index.json (8.0.8.0 / 8.0.8.1)
 ├── tools/generate-map.py           ← regenerates the map from rosetta-maps-private
 └── settings.gradle.kts             ← composite-builds ../rosetta-xposed
 ```
@@ -98,8 +98,24 @@ python3 tools/generate-map.py
    already restricted to `com.ticktick.task`.
 2. Force-stop TickTick so LSPosed loads the module into it.
 3. Open **TickPatch**, flip **Enable Pro for TickTick** on.
-4. Force-stop and reopen TickTick — Pro features unlock. Flip the switch off to
-   revert.
+4. Tap **Force-restart TickTick** (a cooperative kill from inside TickTick, then
+   a relaunch — no root needed). Pro features unlock; flip the switch off and
+   restart again to revert.
+
+### Troubleshooting
+
+The module logs every decision to the LSPosed log under the `TickPatch:` prefix —
+check there first:
+
+- `armed for com.ticktick.task@… (version_code …)` + `hooked …#isPro by real
+  name` → the hooks are live; the toggle controls Pro per call.
+- `no bundled map for version_code …` → your TickTick isn't 8080/8081. The map
+  only resolves the version it was built from, so this version must be mapped in
+  `rosetta-maps-private` (or wait for the DexKit self-healing backend). This is
+  the most common reason Pro doesn't change.
+- `signer guard failed …; installing UNVERIFIED` → your TickTick's signing cert
+  doesn't match the map's `signer_sha256`; the hooks still install (dogfood
+  fallback), but the map's signer field should be corrected.
 
 > The bundled maps target **TickTick 8.0.8.0 and 8.0.8.1** (`version_code`
 > 8080 / 8081) — the TickTick versions currently mapped in

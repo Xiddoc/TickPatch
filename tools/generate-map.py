@@ -67,7 +67,12 @@ SOURCE_DROP = ("confidence",)
 #   ProHelper.isPro(User)   -> user != null && (user.isPro() || user.isActiveTeamUser())
 METHOD_INJECTIONS = {
     "com.ticktick.task.data.User": {
+        # isPro() == (proType == 1 || isActiveTeamUser()). Hook all three Pro
+        # surfaces so feature code that reads pro state directly (the int
+        # proType getter, the team flag) is covered, not only the boolean gate.
         "isPro": {"obfuscated": "isPro", "signature": "()Z"},
+        "isActiveTeamUser": {"obfuscated": "isActiveTeamUser", "signature": "()Z"},
+        "getProType": {"obfuscated": "getProType", "signature": "()I"},
     },
     "com.ticktick.task.helper.pro.ProHelper": {
         "isPro": {
@@ -142,11 +147,24 @@ def convert(version_code: int) -> int:
     return 0
 
 
+def write_index() -> None:
+    """Emit maps/index.json listing every bundled map filename.
+
+    The module enumerates this at runtime instead of carrying its own version
+    list, so a generated map can never be silently left out of the registry.
+    """
+    index_path = OUT_DIR / "index.json"
+    filenames = [f"{vc}.json" for vc in VERSION_CODES]
+    index_path.write_text(json.dumps(filenames, indent=2) + "\n")
+    print(f"wrote {index_path.relative_to(REPO)} ({len(filenames)} maps)")
+
+
 def main() -> int:
     for version_code in VERSION_CODES:
         rc = convert(version_code)
         if rc != 0:
             return rc
+    write_index()
     return 0
 
 
