@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TickPatch</string>
+    <string name="xposed_description">Flips TickTick\'s Pro gate by resolving User.isPro through a Rosetta map (no hard-coded obfuscated names).</string>
+    <string name="toggle_label">Enable Pro for TickTick</string>
+    <string name="status_on">Pro is ENABLED. Force-restart TickTick for it to take effect.</string>
+    <string name="status_off">Pro is disabled. TickTick behaves normally.</string>
+    <string name="blurb">TickPatch hooks com.ticktick.task.data.User#isPro() and forces it to return true while this switch is on. The obfuscated names are resolved at runtime from a bundled Rosetta map, so a TickTick update only needs a new map — not a new build.</string>
+</resources>
