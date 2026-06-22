@@ -1,0 +1,79 @@
+name: Release APK
+
+# Builds the MINIFIED R8 release APK of the TickPatch module.
+#
+#   * push / PR / manual run  → build the release APK and upload it as a
+#     workflow artifact (a green gate that the minified build stays buildable).
+#   * pushing a `v*` tag       → additionally attach the APK to a GitHub Release.
+#
+# `./gradlew :app:assembleRelease` runs R8 (shrink + optimize + obfuscate, per
+# app/build.gradle.kts) and signs with the debug keystore so the artifact is
+# installable. ubuntu-latest ships the Android SDK preinstalled (ANDROID_HOME
+# set), so no SDK-setup step is needed.
+
+on:
+    push:
+        branches: [master]
+        tags: ['v*']
+    pull_request:
+        branches: [master]
+    workflow_dispatch: {}
+
+# Read-only by default; the tag job raises this to write a GitHub Release.
+permissions:
+    contents: read
+
+concurrency:
+    group: release-apk-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build:
+        name: Build minified R8 release APK
+        runs-on: ubuntu-latest
+        # The tag job (job-level) needs write to publish the Release.
+        permissions:
+            contents: write
+
+        steps:
+            - uses: actions/checkout@v4
+
+            # AGP requires JDK 17.
+            - name: Set up JDK 17
+              uses: actions/setup-java@v4
+              with:
+                  distribution: temurin
+                  java-version: '17'
+
+            - name: Set up Gradle (with build cache)
+              uses: gradle/actions/setup-gradle@v4
+
+            - name: Assemble minified R8 release APK
+              run: ./gradlew :app:assembleRelease --stacktrace
+
+            # Resolve the produced APK path and expose it to later steps.
+            - name: Locate release APK
+              id: apk
+              run: |
+                  set -euo pipefail
+                  APK="$(find app/build/outputs/apk/release -name '*.apk' | head -1)"
+                  if [ -z "$APK" ]; then
+                      echo "::error::No release APK produced." >&2
+                      exit 1
+                  fi
+                  echo "Built: $APK"
+                  echo "path=$APK" >> "$GITHUB_OUTPUT"
+
+            - name: Upload release APK artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: tickpatch-release-apk
+                  path: ${{ steps.apk.outputs.path }}
+                  retention-days: 30
+
+            # On a `v*` tag, publish the APK as a GitHub Release asset.
+            - name: Attach APK to GitHub Release
+              if: startsWith(github.ref, 'refs/tags/v')
+              uses: softprops/action-gh-release@v2
+              with:
+                  files: ${{ steps.apk.outputs.path }}
