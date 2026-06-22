@@ -102,7 +102,7 @@ class TickPatchHooks : IXposedHookLoadPackage {
                 XposedBridge.log(
                     "TickPatch: no bundled map for version_code ${identity.versionCode} " +
                         "(${identity.versionName}); this build ships ${maps.map { it.versionCode }}. " +
-                        "Pro override inactive — map this TickTick version in rosetta-maps-private.",
+                        "Pro override inactive — map this TickTick version in rosetta-maps.",
                 )
                 return
             }
