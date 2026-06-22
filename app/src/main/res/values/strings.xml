@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TickPatch</string>
+    <string name="tagline">Unlock TickTick Pro</string>
     <string name="xposed_description">Flips TickTick\'s Pro gate by resolving User.isPro through a Rosetta map (no hard-coded obfuscated names).</string>
     <string name="toggle_label">Enable Pro for TickTick</string>
     <string name="status_on">Pro is ENABLED. Tap “Force-restart TickTick” for it to take effect.</string>
