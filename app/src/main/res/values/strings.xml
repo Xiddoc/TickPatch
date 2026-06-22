@@ -9,5 +9,6 @@
     <string name="restart_label">Force-restart TickTick</string>
     <string name="restarting">Restarting TickTick…</string>
     <string name="ticktick_not_installed">TickTick is not installed.</string>
-    <string name="blurb">TickPatch hooks com.ticktick.task.data.User#isPro() and forces it to return true while this switch is on. The obfuscated names are resolved at runtime from a bundled Rosetta map, so a TickTick update only needs a new map — not a new build.</string>
+    <string name="log_card_title">Status &amp; activity log</string>
+    <string name="log_card_hint">Long-press to select · pull to refresh on reopen</string>
 </resources>
