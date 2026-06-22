@@ -1,13 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Android 11+ (targetSdk 30+) filters package visibility: without this,
+         getLaunchIntentForPackage("com.ticktick.task") returns null and the
+         UI wrongly reports TickTick as "not installed". Declare the one
+         package we interact with so we can see and relaunch it. -->
+    <queries>
+        <package android:name="com.ticktick.task" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.Light.DarkActionBar">
+        android:theme="@style/Theme.TickPatch">
 
         <!-- The one-button settings UI: toggle "Pro" on/off. -->
         <activity

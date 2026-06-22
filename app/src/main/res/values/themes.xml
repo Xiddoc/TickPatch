@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark, action-bar-less theme for the single settings screen. Built on the
+         platform Material dark theme (no AndroidX dependency, matching the
+         deliberately-light app footprint). colorAccent drives the Switch thumb
+         and track tint, so the toggle picks up the logo's amber automatically. -->
+    <style name="Theme.TickPatch" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/tp_background</item>
+        <item name="android:colorBackground">@color/tp_background</item>
+        <item name="android:colorAccent">@color/tp_accent</item>
+        <item name="android:colorPrimary">@color/tp_background</item>
+        <item name="android:textColorPrimary">@color/tp_text_primary</item>
+        <item name="android:textColorSecondary">@color/tp_text_secondary</item>
+        <item name="android:statusBarColor">@color/tp_background</item>
+        <item name="android:navigationBarColor">@color/tp_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
