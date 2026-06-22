@@ -1,0 +1,439 @@
+{
+  "schema_version": 4,
+  "app": "com.ticktick.task",
+  "version": "8.0.8.0",
+  "version_code": 8080,
+  "captured_at": "2026-06-10",
+  "signer_sha256": "44c3bb8c7ea35b3bb11cbfa3c2f5879240df2e49e39816b4437b9856fbb29541",
+  "sources": [
+    {
+      "tool": "sigmatcher",
+      "config": "signatures/com.ticktick.task/signatures.yaml",
+      "classes": 66,
+      "notes": "Map for version_code 8080 (8.0.8.0) from the SAME multi-version-hardened signatures.yaml that resolves 8081. All 66 rules resolved with zero failures; 5 renamed helpers rotated their tokens vs 8081 (AiComplete q9.x0->q9.w0, LoginHandler j8.m->j8.n, RequestUser h8.l->h8.n, ResponseUser h8.m->h8.o, TwoFactorLoginHandler j8.n->j8.o) and the anchors tracked every one."
+    },
+    {
+      "tool": "hand-authored",
+      "notes": "TickPatch: derived from rosetta-maps-private by tools/generate-map.py (schema 2->4); injected User.isPro / ProHelper.isPro method entries for the Pro gate. Class mappings + signer_sha256 are carried through verbatim."
+    }
+  ],
+  "classes": {
+    "com.ticktick.task.AccountLoginFacebookHandler": {
+      "obfuscated": "j8.a",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes.dex"
+    },
+    "com.ticktick.task.AccountLoginGoogleWebHandler": {
+      "obfuscated": "j8.c",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes.dex"
+    },
+    "com.ticktick.task.AccountLoginTickTickHandler": {
+      "obfuscated": "j8.e",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes.dex"
+    },
+    "com.ticktick.task.AiComplete": {
+      "obfuscated": "q9.w0",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes3.dex"
+    },
+    "com.ticktick.task.ApiFactoryBase": {
+      "obfuscated": "w7.b",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes2.dex"
+    },
+    "com.ticktick.task.GsonApiFactory": {
+      "obfuscated": "w7.c",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes2.dex"
+    },
+    "com.ticktick.task.HttpRequestInterceptor": {
+      "obfuscated": "y7.a",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes2.dex"
+    },
+    "com.ticktick.task.HttpResponseInterceptor": {
+      "obfuscated": "y7.b",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes2.dex"
+    },
+    "com.ticktick.task.LoginHandler": {
+      "obfuscated": "j8.n",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes.dex"
+    },
+    "com.ticktick.task.PayPathRequestInterceptor": {
+      "obfuscated": "y7.c",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes2.dex"
+    },
+    "com.ticktick.task.PomodoroStateContext": {
+      "obfuscated": "yb.d",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes.dex"
+    },
+    "com.ticktick.task.RequestUser": {
+      "obfuscated": "h8.n",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes.dex"
+    },
+    "com.ticktick.task.ResponseUser": {
+      "obfuscated": "h8.o",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes.dex"
+    },
+    "com.ticktick.task.TickTickAuthorizeTask": {
+      "obfuscated": "cf.g",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.TwoFactorLoginHandler": {
+      "obfuscated": "j8.o",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes.dex"
+    },
+    "com.ticktick.task.account.LoginMainActivity": {
+      "obfuscated": "com.ticktick.task.account.LoginMainActivity",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes.dex"
+    },
+    "com.ticktick.task.activity.account.BaseAccountInfoActivity": {
+      "obfuscated": "com.ticktick.task.activity.account.BaseAccountInfoActivity",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes3.dex"
+    },
+    "com.ticktick.task.activity.payfor.ProV7TestHelper": {
+      "obfuscated": "com.ticktick.task.activity.payfor.ProV7TestHelper",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes3.dex"
+    },
+    "com.ticktick.task.data.Habit": {
+      "obfuscated": "com.ticktick.task.data.Habit",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes3.dex"
+    },
+    "com.ticktick.task.data.Project": {
+      "obfuscated": "com.ticktick.task.data.Project",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes3.dex"
+    },
+    "com.ticktick.task.data.Task2": {
+      "obfuscated": "com.ticktick.task.data.Task2",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes3.dex"
+    },
+    "com.ticktick.task.data.User": {
+      "obfuscated": "com.ticktick.task.data.User",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes3.dex",
+      "methods": {
+        "isPro": {
+          "obfuscated": "isPro",
+          "signature": "()Z"
+        },
+        "isActiveTeamUser": {
+          "obfuscated": "isActiveTeamUser",
+          "signature": "()Z"
+        },
+        "getProType": {
+          "obfuscated": "getProType",
+          "signature": "()I"
+        }
+      }
+    },
+    "com.ticktick.task.data.UserProfile": {
+      "obfuscated": "com.ticktick.task.data.UserProfile",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes3.dex"
+    },
+    "com.ticktick.task.focus.FocusEntity": {
+      "obfuscated": "com.ticktick.task.focus.FocusEntity",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes.dex"
+    },
+    "com.ticktick.task.focus.pomodoro.service.PomodoroControlService": {
+      "obfuscated": "com.ticktick.task.focus.pomodoro.service.PomodoroControlService",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes.dex"
+    },
+    "com.ticktick.task.greendao.Task2Dao": {
+      "obfuscated": "com.ticktick.task.greendao.Task2Dao",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes2.dex"
+    },
+    "com.ticktick.task.helper.BaseUrl": {
+      "obfuscated": "com.ticktick.task.helper.BaseUrl",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.helper.HttpUrlBuilderBase": {
+      "obfuscated": "com.ticktick.task.helper.HttpUrlBuilderBase",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.helper.HttpUrlBuilderDida": {
+      "obfuscated": "com.ticktick.task.helper.HttpUrlBuilderDida",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.helper.HttpUrlBuilderTick": {
+      "obfuscated": "com.ticktick.task.helper.HttpUrlBuilderTick",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.helper.ServerHostConfig$Companion": {
+      "obfuscated": "com.ticktick.task.helper.ServerHostConfig$Companion",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.helper.pro.ProHelper": {
+      "obfuscated": "com.ticktick.task.helper.pro.ProHelper",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex",
+      "methods": {
+        "isPro": {
+          "obfuscated": "isPro",
+          "signature": "(Lcom/ticktick/task/data/User;)Z",
+          "static": true
+        }
+      }
+    },
+    "com.ticktick.task.manager.AccountSignOutHelper": {
+      "obfuscated": "com.ticktick.task.manager.AccountSignOutHelper",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.manager.TickTickAccountManager": {
+      "obfuscated": "com.ticktick.task.manager.TickTickAccountManager",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.AiApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.AiApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.AppConfigInterface": {
+      "obfuscated": "com.ticktick.task.network.api.AppConfigInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.BatchApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.BatchApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.CountdownApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.CountdownApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.CourseApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.CourseApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.GeneralApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.GeneralApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.HabitApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.HabitApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.LiveActivityApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.LiveActivityApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.LoginApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.LoginApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.PreferenceExInterface": {
+      "obfuscated": "com.ticktick.task.network.api.PreferenceExInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.PushTestApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.PushTestApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.TaskApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.TaskApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.TaskTemplateApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.TaskTemplateApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.TeamApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.TeamApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.TestApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.TestApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.TicketApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.TicketApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.TimerApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.TimerApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.api.TwoFactorApiInterface": {
+      "obfuscated": "com.ticktick.task.network.api.TwoFactorApiInterface",
+      "kind": "interface",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.restful.LoginApi": {
+      "obfuscated": "vd.j",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.sync.common.model.NamePasswordData": {
+      "obfuscated": "com.ticktick.task.network.sync.common.model.NamePasswordData",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.sync.common.model.SignUserInfo": {
+      "obfuscated": "com.ticktick.task.network.sync.common.model.SignUserInfo",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.sync.entity.user.UserPreference": {
+      "obfuscated": "com.ticktick.task.network.sync.entity.user.UserPreference",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.sync.payment.model.SubscriptionInfo": {
+      "obfuscated": "com.ticktick.task.network.sync.payment.model.SubscriptionInfo",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.network.sync.payment.model.SubscriptionSpecification": {
+      "obfuscated": "com.ticktick.task.network.sync.payment.model.SubscriptionSpecification",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.payfor.billing.NewGoogleBillingPayUtils": {
+      "obfuscated": "com.ticktick.task.payfor.billing.NewGoogleBillingPayUtils",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.payfor.billing.NewGoogleBillingPayment": {
+      "obfuscated": "com.ticktick.task.payfor.billing.NewGoogleBillingPayment",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.service.UserProfileService": {
+      "obfuscated": "com.ticktick.task.service.UserProfileService",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.service.UserService": {
+      "obfuscated": "com.ticktick.task.service.UserService",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.sync.sync.SyncService": {
+      "obfuscated": "com.ticktick.task.sync.sync.SyncService",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.sync.sync.UserSettingsSyncService": {
+      "obfuscated": "com.ticktick.task.sync.sync.UserSettingsSyncService",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.userconfig.UserConfigManager": {
+      "obfuscated": "com.ticktick.task.userconfig.UserConfigManager",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    },
+    "com.ticktick.task.utils.TitleParserLib": {
+      "obfuscated": "com.ticktick.task.utils.TitleParserLib",
+      "kind": "class",
+      "source": "sigmatcher",
+      "dex": "classes4.dex"
+    }
+  }
+}

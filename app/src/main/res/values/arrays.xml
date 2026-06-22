@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The app(s) this module wants to be loaded into (LSPosed scope). -->
+    <string-array name="xposed_scope">
+        <item>com.ticktick.task</item>
+    </string-array>
+</resources>

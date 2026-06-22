@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.DarkActionBar">
+
+        <!-- The one-button settings UI: toggle "Pro" on/off. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Marks this APK as an Xposed/LSPosed module. -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="@string/xposed_description" />
+        <!-- 82 = the de.robv API level modern LSPosed implements. -->
+        <meta-data
+            android:name="xposedminversion"
+            android:value="82" />
+        <!-- Restrict the scope to TickTick so LSPosed only loads us there. -->
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/xposed_scope" />
+        <!-- Opt into LSPosed's world-readable SharedPreferences bridge so the
+             in-app toggle written here is readable (via XSharedPreferences) from
+             inside TickTick's process. -->
+        <meta-data
+            android:name="xposedsharedprefs"
+            android:value="true" />
+    </application>
+
+</manifest>
