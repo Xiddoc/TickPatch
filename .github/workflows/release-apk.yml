@@ -12,9 +12,12 @@ name: Release APK
 # the debug build in build.yml — CI checks it out as a sibling directory next to
 # this repo before invoking Gradle.
 
+# push + pull_request both fire for a PR branch commit, double-running the build.
+# Limit push to master (merges still build) and to v* tags (the release path);
+# pull_request covers branch work — one run per commit.
 on:
     push:
-        branches: ["**"]
+        branches: [master]
         tags: ["v*"]
     pull_request:
     workflow_dispatch:
