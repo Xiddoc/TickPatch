@@ -7,7 +7,7 @@
 A tiny **LSPosed / Xposed module** that unlocks
 [TickTick](https://ticktick.com) **Pro** with a single switch.
 
-**[⬇ Download the latest APK](https://github.com/xiddoc/TickPatch/releases/latest)**
+**[⬇️ Download the latest APK from CI ⬇️](https://github.com/xiddoc/TickPatch/releases/latest)**
 
 </div>
 
@@ -58,4 +58,4 @@ python3 tools/generate-map.py
 ## Disclaimer
 
 Built as an educational dogfood of the Rosetta obfuscation-map tooling. Support
-the developers of the software you use — if you rely on TickTick, buy Pro.
+the developers of the software you use — if you rely on TickTick, buy Pro!
