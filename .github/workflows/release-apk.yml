@@ -10,6 +10,11 @@ name: Release APK
 # app/build.gradle.kts) and signs with the debug keystore so the artifact is
 # installable. ubuntu-latest ships the Android SDK preinstalled (ANDROID_HOME
 # set), so no SDK-setup step is needed.
+#
+# Only first-party `actions/*` are used in the build gate, and the gate runs
+# with a read-only token — so it cannot trip an Actions allow-list policy or a
+# write-scope cap. The tag-only Release job (which needs `contents: write`) is
+# isolated and uses the preinstalled `gh` CLI rather than a third-party action.
 
 on:
     push:
@@ -19,7 +24,6 @@ on:
         branches: [master]
     workflow_dispatch: {}
 
-# Read-only by default; the tag job raises this to write a GitHub Release.
 permissions:
     contents: read
 
@@ -31,25 +35,22 @@ jobs:
     build:
         name: Build minified R8 release APK
         runs-on: ubuntu-latest
-        # The tag job (job-level) needs write to publish the Release.
-        permissions:
-            contents: write
 
         steps:
             - uses: actions/checkout@v4
 
-            # AGP requires JDK 17.
+            # AGP requires JDK 17; cache the Gradle home via the first-party action.
             - name: Set up JDK 17
               uses: actions/setup-java@v4
               with:
                   distribution: temurin
                   java-version: '17'
-
-            - name: Set up Gradle (with build cache)
-              uses: gradle/actions/setup-gradle@v4
+                  cache: gradle
 
             - name: Assemble minified R8 release APK
-              run: ./gradlew :app:assembleRelease --stacktrace
+              run: |
+                  chmod +x ./gradlew
+                  ./gradlew :app:assembleRelease --stacktrace
 
             # Resolve the produced APK path and expose it to later steps.
             - name: Locate release APK
@@ -71,9 +72,30 @@ jobs:
                   path: ${{ steps.apk.outputs.path }}
                   retention-days: 30
 
-            # On a `v*` tag, publish the APK as a GitHub Release asset.
-            - name: Attach APK to GitHub Release
-              if: startsWith(github.ref, 'refs/tags/v')
-              uses: softprops/action-gh-release@v2
+    # Tag-only: publish the built APK as a GitHub Release asset. Isolated from
+    # the build gate so its `contents: write` scope never applies to PR runs.
+    release:
+        name: Publish GitHub Release
+        needs: build
+        if: startsWith(github.ref, 'refs/tags/v')
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        steps:
+            - name: Download built APK
+              uses: actions/download-artifact@v4
               with:
-                  files: ${{ steps.apk.outputs.path }}
+                  name: tickpatch-release-apk
+                  path: dist
+
+            - name: Create release and attach APK
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  APK="$(find dist -name '*.apk' | head -1)"
+                  gh release create "${GITHUB_REF_NAME}" "$APK" \
+                      --repo "${GITHUB_REPOSITORY}" \
+                      --title "${GITHUB_REF_NAME}" \
+                      --generate-notes
