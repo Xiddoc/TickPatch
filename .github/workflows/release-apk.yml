@@ -46,7 +46,7 @@ jobs:
             # beside it — settings.gradle.kts does includeBuild("../rosetta-xposed").
             # fetch-depth: 0 so the version bump can read existing v* tags.
             - name: Check out TickPatch
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
               with:
                   path: TickPatch
                   fetch-depth: 0
@@ -56,7 +56,7 @@ jobs:
             # as the ROSETTA_XPOSED_PAT secret; for a public repo the default token
             # works.
             - name: Check out rosetta-xposed (composite build)
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
               with:
                   repository: Xiddoc/rosetta-xposed
                   ref: master
@@ -92,13 +92,13 @@ jobs:
                   echo "Stamping version $name (code ${{ github.run_number }}), publish=$publish"
 
             - name: Set up JDK 17
-              uses: actions/setup-java@v4
+              uses: actions/setup-java@v5
               with:
                   distribution: temurin
                   java-version: "17"
 
             - name: Set up Gradle
-              uses: gradle/actions/setup-gradle@v4
+              uses: gradle/actions/setup-gradle@v5
 
             # ubuntu-latest ships the Android SDK preinstalled (ANDROID_HOME set),
             # so no SDK provisioning step is needed.
@@ -123,7 +123,7 @@ jobs:
                   echo "path=$APK" >> "$GITHUB_OUTPUT"
 
             - name: Upload release APK artifact
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v6
               with:
                   name: tickpatch-release-apk
                   path: ${{ steps.apk.outputs.path }}
@@ -143,7 +143,7 @@ jobs:
             contents: write
         steps:
             - name: Download built APK
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v7
               with:
                   name: tickpatch-release-apk
                   path: dist
