@@ -9,12 +9,11 @@
     {
       "tool": "sigmatcher",
       "config": "signatures/com.ticktick.task/signatures.yaml",
-      "classes": 66,
-      "notes": "Map for version_code 8080 (8.0.8.0) from the SAME multi-version-hardened signatures.yaml that resolves 8081. All 66 rules resolved with zero failures; 5 renamed helpers rotated their tokens vs 8081 (AiComplete q9.x0->q9.w0, LoginHandler j8.m->j8.n, RequestUser h8.l->h8.n, ResponseUser h8.m->h8.o, TwoFactorLoginHandler j8.n->j8.o) and the anchors tracked every one."
+      "classes": 66
     },
     {
       "tool": "hand-authored",
-      "notes": "TickPatch: derived from rosetta-maps-private by tools/generate-map.py (schema 2->4); injected User.isPro / ProHelper.isPro method entries for the Pro gate. Class mappings + signer_sha256 are carried through verbatim."
+      "notes": "TickPatch: derived from rosetta-maps by tools/generate-map.py (schema pinned to 4); injected User.isPro / ProHelper.isPro method entries for the Pro gate. Class mappings + signer_sha256 are carried through verbatim."
     }
   ],
   "classes": {

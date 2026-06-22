@@ -5,17 +5,16 @@ TickPatch dogfoods the Rosetta toolchain: instead of hard-coding obfuscated
 names, the LSPosed hook resolves `com.ticktick.task.data.User#isPro` (and
 `ProHelper#isPro`) by their REAL names through a Rosetta map. This script
 derives that bundled map from the community knowledge base
-(`rosetta-maps-private`, the source of truth) so the obfuscation data and the
+(`rosetta-maps`, the source of truth) so the obfuscation data and the
 APK signer guard come straight from there — never re-typed by hand.
 
 Two adaptations are applied so the map is consumable by the rosetta-xposed
 Kotlin client (`io.github.xiddoc.rosetta.core.MapLoader`):
 
-  1. SCHEMA UPGRADE. The source artifact is `schema_version: 2` (class-level
-     only). The client hard-gates on `CURRENT_SCHEMA_VERSION` (4) and parses
-     strictly (`additionalProperties: false`), so the v2-only authoring fields
-     (`confidence`, `anchors` on a class; `confidence` on a source) are dropped
-     and `schema_version` is bumped to 4. No field MEANING changes — every
+  1. SCHEMA PIN. The client hard-gates on `CURRENT_SCHEMA_VERSION` (4) and
+     parses strictly (`additionalProperties: false`), so any authoring-only
+     fields the canonical schema carries (`confidence`, `anchors`) are dropped
+     and `schema_version` is pinned to 4. No field MEANING changes — every
      obfuscated mapping and the `signer_sha256` guard are carried through
      verbatim.
 
@@ -27,7 +26,7 @@ Kotlin client (`io.github.xiddoc.rosetta.core.MapLoader`):
      are the real FQNs. That self-mapping is exactly the point: the day TickTick
      rotates these names, only the map changes — the hook code does not.
 
-Run from the repo root (rosetta-maps-private must be a sibling checkout):
+Run from the repo root (rosetta-maps must be a sibling checkout):
 
     python3 tools/generate-map.py
 
@@ -44,11 +43,11 @@ HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parent
 APP_PKG = "com.ticktick.task"
 # Every TickTick version_code TickPatch bundles a map for. Each must exist in
-# rosetta-maps-private and carry the User / ProHelper Pro gate. Add a version
+# rosetta-maps and carry the User / ProHelper Pro gate. Add a version
 # here (and check it has the gate) to extend coverage.
 VERSION_CODES = (8080, 8081)
 
-MAPS_DIR = REPO.parent / "rosetta-maps-private" / "maps" / APP_PKG
+MAPS_DIR = REPO.parent / "rosetta-maps" / "maps" / APP_PKG
 OUT_DIR = REPO / "app" / "src" / "main" / "resources" / "maps"
 
 # Fields the strict schema_version: 4 client model does NOT carry. They are
@@ -94,7 +93,7 @@ def convert(version_code: int) -> int:
     if not source_map.exists():
         sys.stderr.write(
             f"error: source map not found at {source_map}\n"
-            "Check out rosetta-maps-private as a sibling of this repo.\n"
+            "Check out rosetta-maps as a sibling of this repo.\n"
         )
         return 1
 
@@ -116,9 +115,9 @@ def convert(version_code: int) -> int:
         {
             "tool": "hand-authored",
             "notes": (
-                "TickPatch: derived from rosetta-maps-private by tools/generate-map.py "
-                "(schema 2->4); injected User.isPro / ProHelper.isPro method entries for "
-                "the Pro gate. Class mappings + signer_sha256 are carried through verbatim."
+                "TickPatch: derived from rosetta-maps by tools/generate-map.py "
+                "(schema pinned to 4); injected User.isPro / ProHelper.isPro method entries "
+                "for the Pro gate. Class mappings + signer_sha256 are carried through verbatim."
             ),
         }
     )
