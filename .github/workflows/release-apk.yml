@@ -1,0 +1,113 @@
+name: Release APK
+
+# Builds the MINIFIED R8 release APK of the TickPatch module.
+#
+#   * push / PR / manual run  → build the release APK and upload it as a
+#     workflow artifact (a green gate that the minified build stays buildable).
+#   * pushing a `v*` tag       → additionally attach the APK to a GitHub Release.
+#
+# `:app:assembleRelease` runs R8 (shrink + optimize + obfuscate, per
+# app/build.gradle.kts) and signs with the debug keystore so the artifact is
+# installable. rosetta-xposed is consumed as a Gradle composite build, so — like
+# the debug build in build.yml — CI checks it out as a sibling directory next to
+# this repo before invoking Gradle.
+
+on:
+    push:
+        branches: ["**"]
+        tags: ["v*"]
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: release-apk-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build:
+        name: Build minified R8 release APK
+        runs-on: ubuntu-latest
+        steps:
+            # Check this repo out into a subdirectory so rosetta-xposed can sit
+            # beside it — settings.gradle.kts does includeBuild("../rosetta-xposed").
+            - name: Check out TickPatch
+              uses: actions/checkout@v4
+              with:
+                  path: TickPatch
+
+            # The Rosetta resolver library (composite build dependency). Pinned to
+            # master. If rosetta-xposed is PRIVATE, add a PAT with repo read access
+            # as the ROSETTA_XPOSED_PAT secret; for a public repo the default token
+            # works.
+            - name: Check out rosetta-xposed (composite build)
+              uses: actions/checkout@v4
+              with:
+                  repository: Xiddoc/rosetta-xposed
+                  ref: master
+                  path: rosetta-xposed
+                  token: ${{ secrets.ROSETTA_XPOSED_PAT || github.token }}
+
+            - name: Set up JDK 17
+              uses: actions/setup-java@v4
+              with:
+                  distribution: temurin
+                  java-version: "17"
+
+            - name: Set up Gradle
+              uses: gradle/actions/setup-gradle@v4
+
+            # ubuntu-latest ships the Android SDK preinstalled (ANDROID_HOME set),
+            # so no SDK provisioning step is needed.
+            - name: Assemble minified R8 release APK
+              working-directory: TickPatch
+              run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+            - name: Locate release APK
+              id: apk
+              run: |
+                  set -euo pipefail
+                  APK="$(find TickPatch/app/build/outputs/apk/release -name '*.apk' | head -1)"
+                  if [ -z "$APK" ]; then
+                      echo "::error::No release APK produced." >&2
+                      exit 1
+                  fi
+                  echo "Built: $APK"
+                  echo "path=$APK" >> "$GITHUB_OUTPUT"
+
+            - name: Upload release APK artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: tickpatch-release-apk
+                  path: ${{ steps.apk.outputs.path }}
+                  if-no-files-found: error
+                  retention-days: 30
+
+    # Tag-only: publish the built APK as a GitHub Release asset. Isolated so its
+    # `contents: write` scope never applies to PR/branch build runs.
+    release:
+        name: Publish GitHub Release
+        needs: build
+        if: startsWith(github.ref, 'refs/tags/v')
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - name: Download built APK
+              uses: actions/download-artifact@v4
+              with:
+                  name: tickpatch-release-apk
+                  path: dist
+
+            - name: Create release and attach APK
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  APK="$(find dist -name '*.apk' | head -1)"
+                  gh release create "${GITHUB_REF_NAME}" "$APK" \
+                      --repo "${GITHUB_REPOSITORY}" \
+                      --title "${GITHUB_REF_NAME}" \
+                      --generate-notes

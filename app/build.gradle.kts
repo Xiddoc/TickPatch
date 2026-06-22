@@ -32,11 +32,28 @@ android {
     }
 
     buildTypes {
-        // Keep the module un-minified so the entry-point class names referenced
-        // from assets/xposed_init and the manifest survive (the same stance the
-        // rosetta-xposed example module takes).
+        // Debug stays un-minified for fast, readable on-device iteration.
         debug { isMinifyEnabled = false }
-        release { isMinifyEnabled = false }
+        release {
+            // The release APK is a real, minified R8 build (shrink + optimize +
+            // obfuscate). The Xposed entry class is loaded REFLECTIVELY by name
+            // from assets/xposed_init, so R8 has no static reference to it;
+            // proguard-rules.pro pins the entry, the Xposed callback surface,
+            // and the (manifest-referenced) MainActivity so the minified module
+            // still loads and toggles. Hook TARGETS are resolved at runtime
+            // inside TickTick's own class loader via the Rosetta map, so R8 on
+            // THIS APK never touches them.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            // Sign the release APK with the auto-provisioned debug keystore so CI
+            // emits an INSTALLABLE artifact without a committed secret. Swap in a
+            // real release keystore to publish for distribution.
+            signingConfig = signingConfigs.getByName("debug")
+        }
     }
 
     compileOptions {
