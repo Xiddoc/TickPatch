@@ -19,10 +19,13 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.content.res.ColorStateList
 import android.os.Bundle
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -35,12 +38,22 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import org.json.JSONArray
 
 class MainActivity : Activity() {
+    /** Set true while the world-readable prefs open succeeds — our proxy for "LSPosed is live". */
+    private var moduleActive = false
+
+    /** The toggle store, opened once in [onCreate] and reused by the diagnostics card. */
+    private lateinit var prefs: SharedPreferences
+
+    /** The selectable log/diagnostics surface; refreshed in [onResume] and on every action. */
+    private lateinit var logView: TextView
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val prefs = openPrefs()
+        prefs = openPrefs()
 
         val icon =
             ImageView(this).apply {
@@ -85,6 +98,8 @@ class MainActivity : Activity() {
                 setOnCheckedChangeListener { _, isChecked ->
                     prefs.edit().putBoolean(Prefs.KEY_PRO_ENABLED, isChecked).apply()
                     status.text = statusText(isChecked)
+                    Log.i(TAG, "Pro toggle set ${if (isChecked) "ON" else "OFF"}.")
+                    refreshLog()
                 }
             }
         status.text = statusText(toggle.isChecked)
@@ -118,14 +133,7 @@ class MainActivity : Activity() {
                     }
             }
 
-        val blurb =
-            TextView(this).apply {
-                text = getString(R.string.blurb)
-                textSize = 12f
-                setTextColor(color(R.color.tp_text_secondary))
-                setLineSpacing(dp(2).toFloat(), 1f)
-                setPadding(0, dp(28), 0, 0)
-            }
+        val logCard = buildLogCard()
 
         val content =
             LinearLayout(this).apply {
@@ -137,8 +145,11 @@ class MainActivity : Activity() {
                 addView(tagline)
                 addView(card)
                 addView(restart)
-                addView(blurb)
+                addView(logCard)
             }
+
+        Log.i(TAG, "TickPatch settings opened.")
+        refreshLog()
 
         setContentView(
             ScrollView(this).apply {
@@ -192,6 +203,8 @@ class MainActivity : Activity() {
             return
         }
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        Log.i(TAG, "Force-restart requested for $TICKTICK_PACKAGE.")
+        refreshLog()
         Toast.makeText(this, R.string.restarting, Toast.LENGTH_SHORT).show()
         view.postDelayed({ startActivity(launch) }, RELAUNCH_DELAY_MS)
     }
@@ -207,10 +220,149 @@ class MainActivity : Activity() {
     @Suppress("DEPRECATION")
     private fun openPrefs(): SharedPreferences =
         try {
-            getSharedPreferences(Prefs.FILE, Context.MODE_WORLD_READABLE)
+            getSharedPreferences(Prefs.FILE, Context.MODE_WORLD_READABLE).also { moduleActive = true }
         } catch (_: SecurityException) {
+            moduleActive = false
             getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE)
         }
+
+    /** Re-read the diagnostics whenever the screen comes forward (e.g. back from TickTick). */
+    override fun onResume() {
+        super.onResume()
+        refreshLog()
+    }
+
+    /**
+     * The scrollable, selectable diagnostics card that replaced the old static
+     * blurb. It is a fixed-height [ScrollView] (its own scroll region inside the
+     * page scroll) wrapping a monospace, text-selectable [TextView] — long-press
+     * to select and copy. [logView] is refreshed by [refreshLog].
+     */
+    private fun buildLogCard(): View {
+        val header =
+            TextView(this).apply {
+                text = getString(R.string.log_card_title)
+                textSize = 13f
+                setTextColor(color(R.color.tp_text_primary))
+                typeface = Typeface.DEFAULT_BOLD
+                letterSpacing = 0.02f
+            }
+        val hint =
+            TextView(this).apply {
+                text = getString(R.string.log_card_hint)
+                textSize = 11f
+                setTextColor(color(R.color.tp_text_secondary))
+                setPadding(0, dp(2), 0, dp(10))
+            }
+        logView =
+            TextView(this).apply {
+                typeface = Typeface.MONOSPACE
+                textSize = 11f
+                setTextColor(color(R.color.tp_text_secondary))
+                setTextIsSelectable(true)
+                setLineSpacing(dp(2).toFloat(), 1f)
+            }
+        val logScroll =
+            ScrollView(this).apply {
+                isVerticalScrollBarEnabled = true
+                addView(logView)
+                layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(200))
+            }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = cardBackground()
+            setPadding(dp(20), dp(18), dp(20), dp(18))
+            addView(header)
+            addView(hint)
+            addView(logScroll)
+            layoutParams =
+                LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+                    topMargin = dp(28)
+                }
+        }
+    }
+
+    /** Recompute the diagnostics block + own-process logcat tail into [logView]. */
+    private fun refreshLog() {
+        if (!::logView.isInitialized) return
+        logView.text = diagnosticsBlock() + "\n\n" + logcatTail()
+    }
+
+    /**
+     * A live, self-contained status report. Everything here is readable from the
+     * MODULE's own process — the in-app hook logs (via XposedBridge) run inside
+     * TickTick's process and aren't reachable here without the privileged
+     * READ_LOGS permission, so we report what we can see honestly.
+     */
+    private fun diagnosticsBlock(): String {
+        val maps = bundledMapVersionCodes()
+        val installed = ticktickVersionCode()
+        return buildString {
+            appendLine("● Module:   " + if (moduleActive) "active (LSPosed prefs bridge live)" else "not detected — enable TickPatch in LSPosed")
+            appendLine("● TickTick: " + (ticktickVersionLabel() ?: "not installed"))
+            appendLine("● Maps:     " + if (maps.isEmpty()) "none bundled" else maps.sorted().joinToString(", "))
+            appendLine(
+                "● Map hit:  " + when {
+                    installed == null -> "—"
+                    maps.contains(installed) -> "matched ($installed)"
+                    else -> "none for $installed — add a map in rosetta-maps"
+                },
+            )
+            append("● Pro:      " + if (prefs.getBoolean(Prefs.KEY_PRO_ENABLED, false)) "ENABLED" else "disabled")
+        }
+    }
+
+    /**
+     * The last lines this app logged to logcat (tag [TAG]). An app may read its
+     * OWN process logs without `READ_LOGS`; if the read is denied or empty we
+     * just say so rather than failing the card.
+     */
+    private fun logcatTail(): String {
+        val lines =
+            runCatching {
+                Runtime.getRuntime()
+                    .exec(arrayOf("logcat", "-d", "-v", "time", "-t", "$LOGCAT_LINES", "$TAG:I", "*:S"))
+                    .inputStream
+                    .bufferedReader()
+                    .useLines { seq -> seq.filter { it.isNotBlank() && !it.startsWith("---") }.toList() }
+            }.getOrNull()
+        return when {
+            lines == null -> "— activity log unavailable on this device —"
+            lines.isEmpty() -> "— no activity yet —"
+            else -> lines.joinToString("\n")
+        }
+    }
+
+    /** version_codes of the maps bundled in the APK, read from `maps/index.json`. */
+    private fun bundledMapVersionCodes(): List<Long> =
+        runCatching {
+            val text =
+                javaClass.classLoader
+                    ?.getResourceAsStream(MAP_INDEX)
+                    ?.use { it.readBytes().decodeToString() }
+                    ?: return emptyList()
+            val arr = JSONArray(text)
+            (0 until arr.length()).mapNotNull { arr.getString(it).removeSuffix(".json").toLongOrNull() }
+        }.getOrDefault(emptyList())
+
+    /** The installed TickTick's version_code, or null if it isn't installed. */
+    @Suppress("DEPRECATION")
+    private fun ticktickVersionCode(): Long? =
+        runCatching {
+            val info = packageManager.getPackageInfo(TICKTICK_PACKAGE, 0)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                info.longVersionCode
+            } else {
+                info.versionCode.toLong()
+            }
+        }.getOrNull()
+
+    /** A human label like "8.1.0.0 (8100)" for the installed TickTick, or null. */
+    private fun ticktickVersionLabel(): String? =
+        runCatching {
+            val info = packageManager.getPackageInfo(TICKTICK_PACKAGE, 0)
+            "${info.versionName} (${ticktickVersionCode()})"
+        }.getOrElse { if (it is PackageManager.NameNotFoundException) null else throw it }
 
     /** dp → px for the code-built layout. */
     private fun dp(value: Int): Int =
@@ -233,5 +385,14 @@ class MainActivity : Activity() {
 
         /** Pause after the kill broadcast before relaunching, so the old process is gone. */
         const val RELAUNCH_DELAY_MS = 900L
+
+        /** logcat tag for this app's own diagnostics; the card filters on it. */
+        const val TAG = "TickPatch"
+
+        /** Manifest of bundled maps (filenames), mirrored from TickPatchHooks. */
+        const val MAP_INDEX = "maps/index.json"
+
+        /** How many of this app's recent log lines to show in the card. */
+        const val LOGCAT_LINES = 200
     }
 }
