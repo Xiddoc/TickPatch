@@ -28,8 +28,8 @@ by its **real** name (`com.ticktick.task.data.User#isPro`) through a bundled
 [Rosetta](https://github.com/xiddoc/rosetta-xposed) map. When TickTick renames
 things in a new version, TickPatch just needs a new map — not a new build.
 
-The bundled maps cover TickTick **8.0.8.0** and **8.0.8.1**. On any other
-version the module simply stays inactive (it never crashes the app).
+The bundled maps cover TickTick **8.0.8.0**, **8.0.8.1**, and **8.1.0.0**. On
+any other version the module simply stays inactive (it never crashes the app).
 
 ## Build from source
 

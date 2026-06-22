@@ -3,14 +3,22 @@ name: Build APK
 # Builds the TickPatch LSPosed module APK. rosetta-xposed is consumed as a
 # Gradle composite build, so CI checks it out as a sibling directory next to
 # this repo before invoking Gradle.
+# Push and pull_request both fire for a commit on a PR branch, which double-runs
+# the same build. Limit push to master (so merges still get a run) and let
+# pull_request cover branch work — one run per commit, not two.
 on:
   push:
-    branches: ["**"]
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# Supersede in-flight runs for the same ref so rapid pushes don't pile up.
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:

@@ -45,7 +45,7 @@ APP_PKG = "com.ticktick.task"
 # Every TickTick version_code TickPatch bundles a map for. Each must exist in
 # rosetta-maps and carry the User / ProHelper Pro gate. Add a version
 # here (and check it has the gate) to extend coverage.
-VERSION_CODES = (8080, 8081)
+VERSION_CODES = (8080, 8081, 8100)
 
 MAPS_DIR = REPO.parent / "rosetta-maps" / "maps" / APP_PKG
 OUT_DIR = REPO / "app" / "src" / "main" / "resources" / "maps"
