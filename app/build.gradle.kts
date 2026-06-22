@@ -21,8 +21,13 @@ android {
         applicationId = "io.github.xiddoc.tickpatch"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        // Versioning is injectable so the release-on-merge CI can stamp the
+        // auto-bumped version without committing back to the repo. Local /
+        // default builds fall back to the baseline below. `tickpatchVersionCode`
+        // is the monotonic CI run number; `tickpatchVersionName` the bumped
+        // semver. See .github/workflows/release-apk.yml.
+        versionCode = (project.findProperty("tickpatchVersionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("tickpatchVersionName") as String?) ?: "1.0.0"
     }
 
     buildFeatures {
