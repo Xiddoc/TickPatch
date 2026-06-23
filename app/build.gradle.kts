@@ -24,13 +24,17 @@ plugins {
 // Declare WHICH TickTick maps to bundle; the build fetches them verbatim from
 // rosetta-maps and bundles them under maps/<version_code>.json. The Pro-gate
 // METHOD entries (User.isPro / getProType / isActiveTeamUser, ProHelper.isPro)
-// now live in those upstream maps, so there is nothing to inject locally. Pinned
-// to a rosetta-maps commit SHA for reproducibility/provenance (git
+// live in those upstream maps, so there is nothing to inject locally. Pinned to
+// a rosetta-maps commit SHA for reproducibility/provenance (git
 // content-addressing = integrity). Bump this ref to adopt a refreshed/added map.
+//
+// Only 8100 is bundled: on master the 8080/8081 maps are still class-only (no
+// method tables), so their Pro gate can't be resolved from a verbatim fetch. Add
+// them back to `versions` once rosetta-maps carries their method entries.
 rosettaMaps {
     app.set("com.ticktick.task")
-    versions.set(listOf(8080L, 8081L, 8100L))
-    ref.set("77d634c1853c2e9d715ef710349df0e2a0817458")
+    versions.set(listOf(8100L))
+    ref.set("8000d2b93e12b9b6f8b88a4297156d01b686041a")
 }
 
 android {

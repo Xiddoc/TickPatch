@@ -28,8 +28,9 @@ by its **real** name (`com.ticktick.task.data.User#isPro`) through a bundled
 [Rosetta](https://github.com/xiddoc/rosetta-xposed) map. When TickTick renames
 things in a new version, TickPatch just needs a new map — not a new build.
 
-The bundled maps cover TickTick **8.0.8.0**, **8.0.8.1**, and **8.1.0.0**. On
-any other version the module simply stays inactive (it never crashes the app).
+The bundled map covers TickTick **8.1.0.0**. On any other version the module
+simply stays inactive (it never crashes the app). Older versions (8.0.8.x) can
+be added back once their maps carry method tables upstream in `rosetta-maps`.
 
 ## Build from source
 
@@ -63,7 +64,7 @@ the pinned rosetta-maps `ref`):
 ```kotlin
 rosettaMaps {
     app.set("com.ticktick.task")
-    versions.set(listOf(8080L, 8081L, 8100L))
+    versions.set(listOf(8100L))
     ref.set("<rosetta-maps commit SHA>")
 }
 ```
