@@ -51,14 +51,13 @@ jobs:
 
       # ubuntu-latest ships the Android SDK preinstalled (ANDROID_HOME is set),
       # so no SDK provisioning step is needed.
-      - name: Sanity-check bundled maps are valid JSON
-        working-directory: TickPatch
-        run: |
-          for m in app/src/main/resources/maps/*.json; do
-            echo "validating $m"
-            python3 -m json.tool "$m" > /dev/null
-          done
-
+      #
+      # The TickTick maps are no longer committed: the io.github.xiddoc.rosetta.maps
+      # plugin fetches them from rosetta-maps at build time (pinned ref) and the
+      # plugin's schema-version gate validates them before bundling, so there is
+      # no separate "validate committed JSON" step here. The fetch runs as part of
+      # assembleDebug (wired into preBuild), so the runner needs network access to
+      # rosetta-maps — available on GitHub-hosted runners under the default policy.
       - name: Build debug APK
         working-directory: TickPatch
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace

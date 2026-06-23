@@ -38,7 +38,7 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
-import org.json.JSONArray
+import org.json.JSONObject
 
 class MainActivity : Activity() {
     /** Set true while the world-readable prefs open succeeds — our proxy for "LSPosed is live". */
@@ -333,7 +333,11 @@ class MainActivity : Activity() {
         }
     }
 
-    /** version_codes of the maps bundled in the APK, read from `maps/index.json`. */
+    /**
+     * version_codes of the maps bundled in the APK, read from `maps/index.json`
+     * — the manifest the `io.github.xiddoc.rosetta.maps` Gradle plugin emits
+     * alongside the fetched maps (`{ "maps": [ { "version_code": N, … } ] }`).
+     */
     private fun bundledMapVersionCodes(): List<Long> =
         runCatching {
             val text =
@@ -341,8 +345,8 @@ class MainActivity : Activity() {
                     ?.getResourceAsStream(MAP_INDEX)
                     ?.use { it.readBytes().decodeToString() }
                     ?: return emptyList()
-            val arr = JSONArray(text)
-            (0 until arr.length()).mapNotNull { arr.getString(it).removeSuffix(".json").toLongOrNull() }
+            val maps = JSONObject(text).getJSONArray("maps")
+            (0 until maps.length()).map { maps.getJSONObject(it).getLong("version_code") }
         }.getOrDefault(emptyList())
 
     /** The installed TickTick's version_code, or null if it isn't installed. */
@@ -389,7 +393,7 @@ class MainActivity : Activity() {
         /** logcat tag for this app's own diagnostics; the card filters on it. */
         const val TAG = "TickPatch"
 
-        /** Manifest of bundled maps (filenames), mirrored from TickPatchHooks. */
+        /** Manifest the rosetta-maps Gradle plugin emits next to the fetched maps. */
         const val MAP_INDEX = "maps/index.json"
 
         /** How many of this app's recent log lines to show in the card. */

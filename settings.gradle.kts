@@ -23,6 +23,14 @@ pluginManagement {
         id("com.android.application") version "8.5.2"
         id("org.jetbrains.kotlin.android") version "2.0.21"
     }
+    // The build-time map fetcher (`io.github.xiddoc.rosetta.maps`, rosetta-xposed
+    // :gradle-plugin) is consumed from the sibling checkout. A plugin produced by
+    // an included build must be contributed through `pluginManagement.includeBuild`
+    // — and that same inclusion ALSO provides the dependency substitution for the
+    // `io.github.xiddoc.rosetta:{xposed,android-runtime}` coordinates in
+    // app/build.gradle.kts, so the build is included here ONCE (including it again
+    // at the top level would be a duplicate-inclusion error).
+    includeBuild("../rosetta-xposed")
 }
 
 dependencyResolutionManagement {
@@ -37,7 +45,9 @@ dependencyResolutionManagement {
 
 rootProject.name = "tickpatch"
 
-// Consume the Rosetta resolver + Android-runtime helpers from the sibling repo.
-includeBuild("../rosetta-xposed")
+// rosetta-xposed is included via `pluginManagement.includeBuild` above (it must
+// be, to contribute the `io.github.xiddoc.rosetta.maps` plugin) — that single
+// inclusion also substitutes the Rosetta resolver + Android-runtime coordinates,
+// so there is no second top-level `includeBuild` here.
 
 include(":app")
