@@ -24,12 +24,15 @@ pluginManagement {
         id("org.jetbrains.kotlin.android") version "2.0.21"
     }
     // The build-time map fetcher (`io.github.xiddoc.rosetta.maps`, rosetta-xposed
-    // :gradle-plugin) is consumed from the sibling checkout. A plugin produced by
-    // an included build must be contributed through `pluginManagement.includeBuild`
-    // — and that same inclusion ALSO provides the dependency substitution for the
-    // `io.github.xiddoc.rosetta:{xposed,android-runtime}` coordinates in
-    // app/build.gradle.kts, so the build is included here ONCE (including it again
-    // at the top level would be a duplicate-inclusion error).
+    // :gradle-plugin) is a plugin produced by an included build, so it must be
+    // contributed through `pluginManagement.includeBuild` — that is what makes the
+    // plugin resolvable from the `plugins { }` block in app/build.gradle.kts.
+    //
+    // This includeBuild contributes the PLUGIN only; it does NOT substitute the
+    // `io.github.xiddoc.rosetta:{xposed,android-runtime}` library coordinates. The
+    // top-level `includeBuild` below does that. Declaring the same build in both
+    // places is fine — Gradle de-duplicates them into one included build (one for
+    // plugin resolution, one for dependency substitution).
     includeBuild("../rosetta-xposed")
 }
 
@@ -45,9 +48,11 @@ dependencyResolutionManagement {
 
 rootProject.name = "tickpatch"
 
-// rosetta-xposed is included via `pluginManagement.includeBuild` above (it must
-// be, to contribute the `io.github.xiddoc.rosetta.maps` plugin) — that single
-// inclusion also substitutes the Rosetta resolver + Android-runtime coordinates,
-// so there is no second top-level `includeBuild` here.
+// Consume the Rosetta resolver + Android-runtime helpers from the sibling repo:
+// this top-level inclusion is what SUBSTITUTES the `io.github.xiddoc.rosetta:*`
+// coordinates in app/build.gradle.kts with the included build's projects.
+// (The `pluginManagement.includeBuild` above contributes the map-fetch PLUGIN;
+// the two declarations of the same path are de-duplicated by Gradle.)
+includeBuild("../rosetta-xposed")
 
 include(":app")
