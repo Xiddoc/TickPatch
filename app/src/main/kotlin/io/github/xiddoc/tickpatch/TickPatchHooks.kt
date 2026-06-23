@@ -7,9 +7,9 @@
  *      app identity and the toggle), by hooking `Application#onCreate`;
  *   2. reads the running app's identity from PackageManager (version_code +
  *      the signing-cert hashes);
- *   3. loads EVERY bundled Rosetta map (enumerated from maps/index.json, so
- *      there is no hand-maintained version list to forget) and selects the one
- *      whose version_code matches the running app, with the map's
+ *   3. loads the bundled Rosetta map for the running app's version_code
+ *      (`maps/<version_code>.json`, fetched verbatim from rosetta-maps at build
+ *      time by the `io.github.xiddoc.rosetta.maps` Gradle plugin), with the map's
  *      `signer_sha256` enforced fail-closed — degrading LOUDLY to an unverified
  *      bind if the signer does not match (so a dogfood on a differently-signed
  *      build still works, with a warning, instead of silently doing nothing);
@@ -46,7 +46,6 @@ import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import io.github.xiddoc.rosetta.android.BundledMaps
 import io.github.xiddoc.rosetta.xposed.RosettaXposed
-import org.json.JSONArray
 import java.util.concurrent.atomic.AtomicBoolean
 
 class TickPatchHooks : IXposedHookLoadPackage {
@@ -94,18 +93,20 @@ class TickPatchHooks : IXposedHookLoadPackage {
 
             val identity = AndroidAppIdentity.of(app.packageManager, app.packageName)
 
-            // Load EVERY bundled map (no hand-maintained list — see maps/index.json)
-            // and select the one matching the running version_code.
-            val maps = bundledMapFiles().map { BundledMaps.load(it) }
-            val target = maps.firstOrNull { it.versionCode == identity.versionCode }
-            if (target == null) {
-                XposedBridge.log(
-                    "TickPatch: no bundled map for version_code ${identity.versionCode} " +
-                        "(${identity.versionName}); this build ships ${maps.map { it.versionCode }}. " +
-                        "Pro override inactive — map this TickTick version in rosetta-maps.",
-                )
-                return
-            }
+            // Select the bundled map by the running version_code directly:
+            // the plugin bundles each map as `maps/<version_code>.json`, so there
+            // is no list to enumerate — a hit is a load, a miss is "unsupported
+            // version". (BundledMaps.load throws if the resource is absent.)
+            val target =
+                runCatching { BundledMaps.load("${identity.versionCode}.json") }
+                    .getOrElse {
+                        XposedBridge.log(
+                            "TickPatch: no bundled map for version_code ${identity.versionCode} " +
+                                "(${identity.versionName}). Pro override inactive — add this TickTick " +
+                                "version to rosettaMaps { versions } once it is mapped in rosetta-maps.",
+                        )
+                        return
+                    }
 
             // Enforce the signer guard; on a mismatch, degrade LOUDLY to an
             // unverified bind so the dogfood still works on a differently-signed
@@ -211,27 +212,8 @@ class TickPatchHooks : IXposedHookLoadPackage {
         return prefs.getBoolean(Prefs.KEY_PRO_ENABLED, false)
     }
 
-    /**
-     * The bundled map filenames, read from `maps/index.json` (emitted by
-     * tools/generate-map.py alongside the maps). Enumerating the index — rather
-     * than hard-coding a version list here — means a newly generated map is
-     * picked up automatically and a version can never be silently left out.
-     */
-    private fun bundledMapFiles(): List<String> {
-        val text =
-            TickPatchHooks::class.java.classLoader
-                ?.getResourceAsStream(MAP_INDEX)
-                ?.use { it.readBytes().decodeToString() }
-                ?: error("bundled $MAP_INDEX missing from the module APK")
-        val arr = JSONArray(text)
-        return (0 until arr.length()).map { arr.getString(it) }
-    }
-
     private companion object {
         const val TARGET_PACKAGE = "com.ticktick.task"
-
-        /** Manifest of bundled maps (filenames), emitted by tools/generate-map.py. */
-        const val MAP_INDEX = "maps/index.json"
 
         const val USER_CLASS = "com.ticktick.task.data.User"
         const val PRO_HELPER_CLASS = "com.ticktick.task.helper.pro.ProHelper"

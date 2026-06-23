@@ -28,8 +28,9 @@ by its **real** name (`com.ticktick.task.data.User#isPro`) through a bundled
 [Rosetta](https://github.com/xiddoc/rosetta-xposed) map. When TickTick renames
 things in a new version, TickPatch just needs a new map — not a new build.
 
-The bundled maps cover TickTick **8.0.8.0**, **8.0.8.1**, and **8.1.0.0**. On
-any other version the module simply stays inactive (it never crashes the app).
+The bundled map covers TickTick **8.1.0.0**. On any other version the module
+simply stays inactive (it never crashes the app). Older versions (8.0.8.x) can
+be added back once their maps carry method tables upstream in `rosetta-maps`.
 
 ## Build from source
 
@@ -39,8 +40,8 @@ out side by side:
 ```
 some-dir/
 ├── TickPatch/
-├── rosetta-xposed/
-└── rosetta-maps/        # only needed to regenerate the bundled map
+├── rosetta-xposed/      # the resolver + the build-time map-fetch plugin
+└── rosetta-maps/        # the source of truth the plugin fetches maps from
 ```
 
 Then (Android SDK required):
@@ -49,10 +50,23 @@ Then (Android SDK required):
 ./gradlew :app:assembleDebug
 ```
 
-To refresh the bundled map from `rosetta-maps`:
+The TickTick maps are **not committed here** — they're fetched at build time
+from `rosetta-maps` by the
+[`io.github.xiddoc.rosetta.maps`](https://github.com/xiddoc/rosetta-xposed/blob/master/docs/getting-started/build-time-maps.md)
+Gradle plugin (`fetchRosettaMaps`, wired into `preBuild`) and bundled into the
+APK under `maps/<version_code>.json`. The on-device runtime never downloads
+anything — the maps are plain Java resources read by `BundledMaps`.
 
-```bash
-python3 tools/generate-map.py
+To change which versions are bundled, or to pick up a refreshed/added map, edit
+the `rosettaMaps { }` block in `app/build.gradle.kts` (its `versions` list and
+the pinned rosetta-maps `ref`):
+
+```kotlin
+rosettaMaps {
+    app.set("com.ticktick.task")
+    versions.set(listOf(8100L))
+    ref.set("<rosetta-maps commit SHA>")
+}
 ```
 
 ## Disclaimer

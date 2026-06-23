@@ -11,6 +11,30 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    // Build-time map fetch (rosetta-xposed#39). Resolved from the sibling build
+    // via `pluginManagement.includeBuild("../rosetta-xposed")` in settings.gradle.kts.
+    // The TickTick maps are pulled from rosetta-maps at BUILD time into
+    // build/generated/rosetta-maps/maps and bundled into the APK — so this module
+    // commits ZERO map JSON and never hand-copies (or hand-injects) it. The
+    // on-device runtime path is byte-identical (plain Java resources read by
+    // BundledMaps; no runtime download, per RFC 0001).
+    id("io.github.xiddoc.rosetta.maps")
+}
+
+// Declare WHICH TickTick maps to bundle; the build fetches them verbatim from
+// rosetta-maps and bundles them under maps/<version_code>.json. The Pro-gate
+// METHOD entries (User.isPro / getProType / isActiveTeamUser, ProHelper.isPro)
+// live in those upstream maps, so there is nothing to inject locally. Pinned to
+// a rosetta-maps commit SHA for reproducibility/provenance (git
+// content-addressing = integrity). Bump this ref to adopt a refreshed/added map.
+//
+// Only 8100 is bundled: on master the 8080/8081 maps are still class-only (no
+// method tables), so their Pro gate can't be resolved from a verbatim fetch. Add
+// them back to `versions` once rosetta-maps carries their method entries.
+rosettaMaps {
+    app.set("com.ticktick.task")
+    versions.set(listOf(8100L))
+    ref.set("8000d2b93e12b9b6f8b88a4297156d01b686041a")
 }
 
 android {
@@ -68,7 +92,20 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    // Bundle the fetched maps as Java resources, exactly where the hand-copied
+    // maps/<version_code>.json used to live — so BundledMaps.load("8100.json")
+    // reads them off the module class loader at runtime, unchanged. The plugin
+    // does NOT auto-wire AGP source sets (it never compiles against the Android
+    // toolchain); the consumer adds this one srcDir line, where AGP's types are
+    // on the classpath. See rosetta-xposed docs/getting-started/build-time-maps.md.
+    sourceSets["main"].resources.srcDirs(layout.buildDirectory.dir("generated/rosetta-maps"))
 }
+
+// Fetch the maps before anything that consumes resources/dex. `preBuild` is the
+// AGP anchor every variant build depends on, so the generated maps exist before
+// they are packaged — without depending on AGP-version-specific wiring.
+tasks.named("preBuild") { dependsOn("fetchRosettaMaps") }
 
 dependencies {
     // Resolution layer — the one Rosetta coordinate (pulls :core transitively).
