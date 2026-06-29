@@ -21,9 +21,12 @@
  *          `User` / `ProHelper` by their stable string anchors and Rosetta's
  *          kept-name member harvest resolves the stringless Pro-gate methods —
  *          so an UNMAPPED TickTick version heals live instead of going inactive;
- *   4. resolves the Pro gate (`User#isPro`, `User#isActiveTeamUser`,
- *      `User#getProType`, `ProHelper#isPro`) by REAL name and hooks each
- *      through the framework-agnostic Hooker seam.
+ *   4. forces Pro by REAL name through the framework-agnostic Hooker seam — by
+ *      pinning the underlying STATE rather than the boolean gate: it coerces
+ *      `User#setProType` to 1 (so `User#isPro` is true consistently and survives
+ *      a server sync) and forces `User#getProType` -> 1 and `ProHelper#isPro`. It
+ *      deliberately does NOT force `User#isPro` / `User#isActiveTeamUser` — both
+ *      crash the home screen on launch (see [installProHooks] for why).
  *
  * There is not a single hard-coded obfuscated name here — that is the whole
  * point. When TickTick rotates these names, a bundled map (if any) or the
@@ -257,16 +260,31 @@ class TickPatchHooks : IXposedHookLoadPackage {
     }
 
     /**
-     * Resolve the Pro gate BY REAL NAME and hook each surface. Hooking the field
-     * getter (getProType -> 1) and isActiveTeamUser, not just isPro(), covers
-     * feature code that reads pro state directly rather than through the boolean
-     * wrapper. ProHelper.isPro(User) is the wrapper most feature code calls
-     * (covers the null-user path). Shared by the static and self-healing paths —
-     * the resolution call is identical; only the backend behind it differs.
+     * Force Pro BY REAL NAME, pinning the underlying STATE rather than the boolean
+     * gate (TickPatch#10). Shared by the static and self-healing paths — the
+     * resolution call is identical; only the backend behind it differs.
+     *
+     *   - `setProType(int)` is coerced to [PRO_TYPE_PRO] (1) so the backing
+     *     `User.proType` field genuinely holds Pro: `User.isPro()`
+     *     (== `proType == 1 || isActiveTeamUser()`) is then true CONSISTENTLY and
+     *     SURVIVES a server-status sync — which would otherwise write `proType = 0`
+     *     and revert the user to free ~a minute after launch. Pinning the field
+     *     (rather than forcing `isPro()` true while the field stays 0) also avoids
+     *     the inconsistency that made TickTick tear its home screen down on launch.
+     *   - `getProType() -> 1` and `ProHelper.isPro(User) -> true` cover feature
+     *     code that reads the tier int / wrapper gate directly, including transient
+     *     `User` instances that never passed through `setProType`. `ProHelper.isPro`
+     *     is the gate `LimitHelper`'s quota selection and most feature code call.
+     *
+     * It deliberately does NOT force `User.isPro()` or `User.isActiveTeamUser()`:
+     * forcing `isPro()` true while `proType` stays 0 is the inconsistency above, and
+     * forcing `isActiveTeamUser()` true flips the user into the TEAM tier
+     * (accountType 2) whose Limits/workspace data a non-team account lacks — both
+     * crash the home screen on launch (research/com.ticktick.task/docs/premium.md
+     * §2.1 / §2.3 / §5).
      */
     private fun installProHooks(rosetta: RosettaXposed) {
-        hookByRealName(rosetta, USER_CLASS, "isPro", null, forceWhenEnabled(true))
-        hookByRealName(rosetta, USER_CLASS, "isActiveTeamUser", null, forceWhenEnabled(true))
+        hookByRealName(rosetta, USER_CLASS, "setProType", null, pinProTypeWhenEnabled())
         hookByRealName(rosetta, USER_CLASS, "getProType", null, forceWhenEnabled(PRO_TYPE_PRO))
         hookByRealName(rosetta, PRO_HELPER_CLASS, "isPro", listOf(USER_CLASS), forceWhenEnabled(true))
     }
@@ -295,6 +313,21 @@ class TickPatchHooks : IXposedHookLoadPackage {
         object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
                 if (proEnabled()) param.result = value
+            }
+        }
+
+    /**
+     * A live-gated callback that COERCES the first argument of
+     * `User.setProType(int)` to [PRO_TYPE_PRO] while the toggle is on — pinning
+     * the backing field so a server-status sync (which writes the real free
+     * `proType`) cannot revert Pro, and so `User.isPro()` stays true consistently
+     * without forcing it (which crashes). Rewriting the arg in the before phase
+     * feeds the coerced value to the original setter.
+     */
+    private fun pinProTypeWhenEnabled(): XC_MethodHook =
+        object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                if (proEnabled() && param.args.isNotEmpty()) param.args[0] = PRO_TYPE_PRO
             }
         }
 

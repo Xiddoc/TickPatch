@@ -149,6 +149,7 @@ class MainActivity : Activity() {
             }
 
         Log.i(TAG, "TickPatch settings opened.")
+        Log.i(TAG, "Resolver path: " + resolverPath(ticktickVersionCode(), bundledMapVersionCodes()))
         refreshLog()
 
         setContentView(
@@ -305,12 +306,46 @@ class MainActivity : Activity() {
                 "● Map hit:  " + when {
                     installed == null -> "—"
                     maps.contains(installed) -> "matched ($installed)"
-                    else -> "none for $installed — add a map in rosetta-maps"
+                    else -> "none for $installed"
                 },
             )
+            appendLine("● Resolver: " + resolverPath(installed, maps))
             append("● Pro:      " + if (prefs.getBoolean(Prefs.KEY_PRO_ENABLED, false)) "ENABLED" else "disabled")
         }
     }
+
+    /**
+     * Which Rosetta backend the hook uses for the INSTALLED TickTick, derived from
+     * the SAME signals the hook branches on — a bundled map for the version_code,
+     * else the bundled community signatures. The module process can't read the
+     * hook's runtime logs (they run in TickTick's process), but it CAN read the
+     * bundled maps + signatures and the installed version_code, so it reports the
+     * path the hook takes without scraping logcat:
+     *
+     *   - a map matched          → the fast O(1) STATIC path (no DexKit);
+     *   - no map but signatures  → SELF-HEALING (signatures + on-device DexKit) —
+     *                              the fallback that resolves an unmapped version;
+     *   - neither                → unavailable on this version.
+     */
+    private fun resolverPath(
+        installed: Long?,
+        maps: List<Long>,
+    ): String =
+        when {
+            installed == null -> "—"
+            maps.contains(installed) -> "static map ($installed) — fast O(1), no DexKit"
+            hasBundledSignatures() ->
+                "SELF-HEALING — no map for $installed; discovering by signatures + on-device DexKit"
+            else -> "unavailable — no map or signatures bundled for $installed"
+        }
+
+    /**
+     * True when the APK bundles community signatures for TickTick (the self-heal
+     * input the `io.github.xiddoc.rosetta.maps` plugin bakes). A plain
+     * resource-existence check on the module class loader — the same place
+     * `BundledSignatures` reads them from inside the hook.
+     */
+    private fun hasBundledSignatures(): Boolean = javaClass.classLoader?.getResource(SIGNATURES_RESOURCE) != null
 
     /**
      * The last lines this app logged to logcat (tag [TAG]). An app may read its
@@ -395,6 +430,9 @@ class MainActivity : Activity() {
 
         /** Manifest the rosetta-maps Gradle plugin emits next to the fetched maps. */
         const val MAP_INDEX = "maps/index.json"
+
+        /** Baked community signatures resource — the self-heal fallback input. */
+        const val SIGNATURES_RESOURCE = "signatures/com.ticktick.task.json"
 
         /** How many of this app's recent log lines to show in the card. */
         const val LOGCAT_LINES = 200
