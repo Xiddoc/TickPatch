@@ -7,18 +7,29 @@
  *      app identity and the toggle), by hooking `Application#onCreate`;
  *   2. reads the running app's identity from PackageManager (version_code +
  *      the signing-cert hashes);
- *   3. loads the bundled Rosetta map for the running app's version_code
- *      (`maps/<version_code>.json`, fetched verbatim from rosetta-maps at build
- *      time by the `io.github.xiddoc.rosetta.maps` Gradle plugin), with the map's
- *      `signer_sha256` enforced fail-closed — degrading LOUDLY to an unverified
- *      bind if the signer does not match (so a dogfood on a differently-signed
- *      build still works, with a warning, instead of silently doing nothing);
+ *   3. picks a resolution backend by the running version_code:
+ *        - a bundled Rosetta map exists (`maps/<version_code>.json`, fetched
+ *          from rosetta-maps at build time by the `io.github.xiddoc.rosetta.maps`
+ *          Gradle plugin) → the fast O(1) STATIC path, with the map's
+ *          `signer_sha256` enforced fail-closed (degrading LOUDLY to an
+ *          unverified bind on a mismatch so a differently-signed dogfood build
+ *          still works, with a warning, instead of silently doing nothing);
+ *        - NO bundled map → the SELF-HEALING path: a real on-device DexKit
+ *          bridge over TickTick's APK, driven by the bundled community
+ *          signatures (`signatures/com.ticktick.task.json`), via
+ *          `RosettaXposed.fromMapWithSignatures(...)`. The signatures locate
+ *          `User` / `ProHelper` by their stable string anchors and Rosetta's
+ *          kept-name member harvest resolves the stringless Pro-gate methods —
+ *          so an UNMAPPED TickTick version heals live instead of going inactive;
  *   4. resolves the Pro gate (`User#isPro`, `User#isActiveTeamUser`,
  *      `User#getProType`, `ProHelper#isPro`) by REAL name and hooks each
  *      through the framework-agnostic Hooker seam.
  *
  * There is not a single hard-coded obfuscated name here — that is the whole
- * point. When TickTick rotates these names, only the bundled map changes.
+ * point. When TickTick rotates these names, a bundled map (if any) or the
+ * community signatures track them; the code never changes. This module is a
+ * pure dogfood of rosetta-xposed — it uses only Rosetta features, no bespoke
+ * discovery logic of its own.
  *
  * The hooks are installed ONCE; whether they actually force Pro is decided LIVE,
  * per call, by the in-app toggle ([Prefs]) read through XSharedPreferences. So
@@ -45,7 +56,15 @@ import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import io.github.xiddoc.rosetta.android.BundledMaps
+import io.github.xiddoc.rosetta.android.BundledSignatures
+import io.github.xiddoc.rosetta.android.PersistentDiscoveryCache
+import io.github.xiddoc.rosetta.core.model.CURRENT_SCHEMA_VERSION
+import io.github.xiddoc.rosetta.core.model.RosettaMap
+import io.github.xiddoc.rosetta.dexkit.DexKitBackedIndex
+import io.github.xiddoc.rosetta.xposed.AppIdentity
+import io.github.xiddoc.rosetta.xposed.DiscoveryConfig
 import io.github.xiddoc.rosetta.xposed.RosettaXposed
+import org.luckypray.dexkit.DexKitBridge
 import java.util.concurrent.atomic.AtomicBoolean
 
 class TickPatchHooks : IXposedHookLoadPackage {
@@ -93,55 +112,137 @@ class TickPatchHooks : IXposedHookLoadPackage {
 
             val identity = AndroidAppIdentity.of(app.packageManager, app.packageName)
 
-            // Select the bundled map by the running version_code directly:
-            // the plugin bundles each map as `maps/<version_code>.json`, so there
-            // is no list to enumerate — a hit is a load, a miss is "unsupported
-            // version". (BundledMaps.load throws if the resource is absent.)
-            val target =
-                runCatching { BundledMaps.load("${identity.versionCode}.json") }
-                    .getOrElse {
-                        XposedBridge.log(
-                            "TickPatch: no bundled map for version_code ${identity.versionCode} " +
-                                "(${identity.versionName}). Pro override inactive — add this TickTick " +
-                                "version to rosettaMaps { versions } once it is mapped in rosetta-maps.",
-                        )
-                        return
-                    }
-
-            // Enforce the signer guard; on a mismatch, degrade LOUDLY to an
-            // unverified bind so the dogfood still works on a differently-signed
-            // build instead of silently no-opping.
-            val rosetta =
-                try {
-                    RosettaXposed.fromMap(target, classLoader, identity)
-                } catch (e: RuntimeException) {
-                    XposedBridge.log(
-                        "TickPatch: signer guard failed for version_code ${identity.versionCode} " +
-                            "(${e.javaClass.simpleName}: ${e.message}); installing UNVERIFIED (dogfood " +
-                            "fallback). If this is the genuine TickTick, fix the map's signer_sha256.",
-                    )
-                    RosettaXposed.fromMapUnverified(target, classLoader)
-                }
-
-            // Resolve the Pro gate BY REAL NAME and hook each surface. Hooking
-            // the field getter (getProType -> 1) and isActiveTeamUser, not just
-            // isPro(), covers feature code that reads pro state directly rather
-            // than through the boolean wrapper. ProHelper.isPro(User) is the
-            // wrapper most feature code calls (covers the null-user path).
-            hookByRealName(rosetta, USER_CLASS, "isPro", null, forceWhenEnabled(true))
-            hookByRealName(rosetta, USER_CLASS, "isActiveTeamUser", null, forceWhenEnabled(true))
-            hookByRealName(rosetta, USER_CLASS, "getProType", null, forceWhenEnabled(PRO_TYPE_PRO))
-            hookByRealName(rosetta, PRO_HELPER_CLASS, "isPro", listOf(USER_CLASS), forceWhenEnabled(true))
-
-            XposedBridge.log(
-                "TickPatch: armed for ${identity.packageName}@${identity.versionName} " +
-                    "(version_code ${identity.versionCode}); toggle decides Pro per call.",
-            )
+            // Select the backend by the running version_code: the plugin bundles
+            // each map as `maps/<version_code>.json`. A HIT takes the fast O(1)
+            // STATIC path (no DexKit). A MISS falls back to SELF-HEALING discovery
+            // driven by the bundled community signatures — so an unmapped TickTick
+            // version resolves the Pro gate live instead of going inactive.
+            val bundledMap = runCatching { BundledMaps.load("${identity.versionCode}.json") }.getOrNull()
+            if (bundledMap != null) {
+                installStaticBacked(bundledMap, identity, classLoader)
+            } else {
+                installSelfHealing(app, identity, classLoader)
+            }
         }.onFailure { e ->
             // Never crash the host — just stay inactive.
             XposedBridge.log("TickPatch: install skipped (${e.javaClass.simpleName}): ${e.message}")
         }
     }
+
+    /**
+     * STATIC path: a bundled map covers the running version. Enforce the signer
+     * guard; on a mismatch degrade LOUDLY to an unverified bind so the dogfood
+     * still works on a differently-signed build instead of silently no-opping.
+     */
+    private fun installStaticBacked(
+        map: RosettaMap,
+        identity: AppIdentity,
+        classLoader: ClassLoader,
+    ) {
+        val rosetta =
+            try {
+                RosettaXposed.fromMap(map, classLoader, identity)
+            } catch (e: RuntimeException) {
+                XposedBridge.log(
+                    "TickPatch: signer guard failed for version_code ${identity.versionCode} " +
+                        "(${e.javaClass.simpleName}: ${e.message}); installing UNVERIFIED (dogfood " +
+                        "fallback). If this is the genuine TickTick, fix the map's signer_sha256.",
+                )
+                RosettaXposed.fromMapUnverified(map, classLoader)
+            }
+        installProHooks(rosetta)
+        XposedBridge.log(
+            "TickPatch: armed (static map) for ${identity.packageName}@${identity.versionName} " +
+                "(version_code ${identity.versionCode}); toggle decides Pro per call.",
+        )
+    }
+
+    /**
+     * SELF-HEALING path: no bundled map for this version, so discover the Pro
+     * gate live from the bundled community signatures via on-device DexKit
+     * (`RosettaXposed.fromMapWithSignatures`). Discovery runs EAGERLY as each
+     * target is resolved+hooked, so the whole bind happens INSIDE the
+     * `DexKitBridge.create(...).use { }` block — the resolved Members outlive the
+     * bridge, so it is safe to close once the hooks are installed. Fail-soft: any
+     * failure (no signatures, no DexKit native, a discovery miss) only means "no
+     * Pro override", never a TickTick crash.
+     */
+    private fun installSelfHealing(
+        app: Application,
+        identity: AppIdentity,
+        classLoader: ClassLoader,
+    ) {
+        val signatures =
+            runCatching { BundledSignatures.load(TARGET_PACKAGE) }
+                .getOrElse {
+                    XposedBridge.log(
+                        "TickPatch: no bundled map for version_code ${identity.versionCode} " +
+                            "(${identity.versionName}) AND no bundled signatures to self-heal from — " +
+                            "Pro override inactive. Add this version to rosettaMaps { versions }, or ship " +
+                            "signatures for $TARGET_PACKAGE in rosetta-maps.",
+                    )
+                    return
+                }
+
+        DexKitBridge.create(app.applicationInfo.sourceDir).use { bridge ->
+            val observer = XposedDiscoveryObserver()
+            // A cross-restart discovery cache keyed on (app, version_code, signer):
+            // a healed name is reused next launch without re-scanning the dex, and
+            // a version/signer bump invalidates it automatically.
+            val prefs = app.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
+            val cache = PersistentDiscoveryCache.create(SharedPreferencesStore(prefs), identity, observer)
+
+            val rosetta =
+                RosettaXposed.fromMapWithSignatures(
+                    // No published map for this version → an empty base map; the
+                    // signatures cover the names. The empty map declares no
+                    // signer, so passing `identity` enforces nothing here (there
+                    // is no map signer to verify against on an unmapped version).
+                    map = emptyMapFor(identity),
+                    index = DexKitBackedIndex(bridge),
+                    signatures = signatures,
+                    classLoader = classLoader,
+                    identity = identity,
+                    discovery = DiscoveryConfig(cache = cache, observer = observer),
+                )
+            installProHooks(rosetta)
+            XposedBridge.log(
+                "TickPatch: armed (self-healing via community signatures) for " +
+                    "${identity.packageName}@${identity.versionName} (version_code ${identity.versionCode}); " +
+                    "obfuscated names discovered on-device. Toggle decides Pro per call.",
+            )
+        }
+    }
+
+    /**
+     * Resolve the Pro gate BY REAL NAME and hook each surface. Hooking the field
+     * getter (getProType -> 1) and isActiveTeamUser, not just isPro(), covers
+     * feature code that reads pro state directly rather than through the boolean
+     * wrapper. ProHelper.isPro(User) is the wrapper most feature code calls
+     * (covers the null-user path). Shared by the static and self-healing paths —
+     * the resolution call is identical; only the backend behind it differs.
+     */
+    private fun installProHooks(rosetta: RosettaXposed) {
+        hookByRealName(rosetta, USER_CLASS, "isPro", null, forceWhenEnabled(true))
+        hookByRealName(rosetta, USER_CLASS, "isActiveTeamUser", null, forceWhenEnabled(true))
+        hookByRealName(rosetta, USER_CLASS, "getProType", null, forceWhenEnabled(PRO_TYPE_PRO))
+        hookByRealName(rosetta, PRO_HELPER_CLASS, "isPro", listOf(USER_CLASS), forceWhenEnabled(true))
+    }
+
+    /**
+     * An empty base [RosettaMap] for the running version, the input
+     * [RosettaXposed.fromMapWithSignatures] expects when no published map exists:
+     * it carries no classes (so every name resolves via the signatures) and no
+     * `signer_sha256` (so the signer guard is a no-op even with an identity).
+     */
+    private fun emptyMapFor(identity: AppIdentity): RosettaMap =
+        RosettaMap(
+            schemaVersion = CURRENT_SCHEMA_VERSION,
+            app = identity.packageName,
+            version = identity.versionName ?: "unknown",
+            versionCode = identity.versionCode,
+            classes = emptyMap(),
+        )
 
     /**
      * A live-gated callback that forces a hooked method's result to [value] (a
@@ -220,5 +321,8 @@ class TickPatchHooks : IXposedHookLoadPackage {
 
         /** `User.proType == 1` means Pro (research/com.ticktick.task/docs/premium.md §2.1). */
         const val PRO_TYPE_PRO = 1
+
+        /** SharedPreferences file backing the self-heal cross-restart discovery cache. */
+        const val CACHE_PREFS = "tickpatch_disc_cache"
     }
 }
