@@ -31,10 +31,23 @@ plugins {
 // Only 8100 is bundled: on master the 8080/8081 maps are still class-only (no
 // method tables), so their Pro gate can't be resolved from a verbatim fetch. Add
 // them back to `versions` once rosetta-maps carries their method entries.
+//
+// SELF-HEALING (rosetta-xposed#47/#48). The plugin also bakes the app's
+// community signatures (signatures/com.ticktick.task.json). On a TickTick
+// version with NO bundled map, TickPatchHooks falls back to
+// RosettaXposed.fromMapWithSignatures(...) + on-device DexKit: the signatures
+// locate `User` / `ProHelper` by their stable string anchors, and the kept-name
+// member harvest resolves the stringless Pro-gate methods (isPro / getProType /
+// isActiveTeamUser) — so a future rename/version is a map-or-signature update,
+// not "module inactive". A mapped version (8100) still takes the fast static
+// path and never builds a bridge.
 rosettaMaps {
     app.set("com.ticktick.task")
     versions.set(listOf(8100L))
     ref.set("8000d2b93e12b9b6f8b88a4297156d01b686041a")
+    // Default is already true; set explicitly because TickPatch now DEPENDS on
+    // the baked signatures (BundledSignatures.load) for the self-heal fallback.
+    signatures.set(true)
 }
 
 android {
@@ -93,6 +106,17 @@ android {
         jvmTarget = "17"
     }
 
+    packaging {
+        // Extract DexKit's `libdexkit.so` to the module's nativeLibraryDir (the
+        // pre-AGP-default behaviour AGP now disables) instead of leaving it
+        // compressed inside the APK. The self-heal path runs INSIDE TickTick's
+        // process and loads the module's OWN `.so` by absolute path via the
+        // module class loader's `findLibrary("dexkit")` (TickPatchHooks
+        // .ensureDexKitNativeLoaded) — which only resolves when the lib is an
+        // extracted file, not an APK-embedded entry. See rosetta-xposed#25.
+        jniLibs.useLegacyPackaging = true
+    }
+
     // Bundle the fetched maps as Java resources, exactly where the hand-copied
     // maps/<version_code>.json used to live — so BundledMaps.load("8100.json")
     // reads them off the module class loader at runtime, unchanged. The plugin
@@ -113,9 +137,25 @@ dependencies {
     implementation("io.github.xiddoc.rosetta:xposed")
 
     // Pure-JVM Android-runtime helpers: BundledMaps (loads the bundled map off
-    // the module class loader) + AndroidIdentities (signer-hash / AppIdentity
-    // assembly). Also from the composite build.
+    // the module class loader), BundledSignatures (the signature sibling),
+    // PersistentDiscoveryCache (cross-restart discovery cache) + AndroidIdentities
+    // (signer-hash / AppIdentity assembly). Also from the composite build.
     implementation("io.github.xiddoc.rosetta:android-runtime")
+
+    // DYNAMIC / self-healing path: the on-device DexKit adapter
+    // (DexKitBackedIndex). Pulls :xposed transitively. The adapter declares
+    // DexKit `compileOnly`, so the AAR is NOT dragged in transitively — this
+    // Android module adds the real DexKit AAR itself (next line) so the bridge
+    // is present at runtime. Consulted ONLY on the unmapped-version fallback; a
+    // mapped version never builds a bridge.
+    implementation("io.github.xiddoc.rosetta:dexkit")
+
+    // The real DexKit native bridge AAR. Ships the Android `.so`, but DexKitBridge
+    // does NOT auto-load it and — inside the hooked app's process — it is not on
+    // the host's library path, so the module loads it itself
+    // (TickPatchHooks.ensureDexKitNativeLoaded; see rosetta-xposed#25). Only the
+    // module-as-app needs the native; the rosetta-xposed library never depends on it.
+    implementation("org.luckypray:dexkit:2.2.0")
 
     // Legacy Xposed API — provided by the framework at runtime, so compileOnly.
     compileOnly("de.robv.android.xposed:api:82")

@@ -27,3 +27,17 @@
 
 # Don't warn about the provided-at-runtime Xposed API symbols.
 -dontwarn de.robv.android.xposed.**
+
+# ---------------------------------------------------------------------------
+# Self-healing path: the on-device DexKit native bridge.
+#
+# DexKit loads a native `.so` and uses JNI + FlatBuffers, which R8 must not
+# rename or strip. The `org.luckypray:dexkit` AAR ships its own consumer
+# ProGuard rules (AGP applies them automatically), but these are added as
+# belt-and-suspenders so a minified release can never break the self-heal
+# fallback — over-keeping costs only a little shrink. The FlatBuffers runtime
+# DexKit reads its generated tables through is kept for the same reason.
+-keep class org.luckypray.dexkit.** { *; }
+-dontwarn org.luckypray.dexkit.**
+-keep class com.google.flatbuffers.** { *; }
+-dontwarn com.google.flatbuffers.**

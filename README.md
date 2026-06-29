@@ -28,9 +28,18 @@ by its **real** name (`com.ticktick.task.data.User#isPro`) through a bundled
 [Rosetta](https://github.com/xiddoc/rosetta-xposed) map. When TickTick renames
 things in a new version, TickPatch just needs a new map — not a new build.
 
-The bundled map covers TickTick **8.1.0.0**. On any other version the module
-simply stays inactive (it never crashes the app). Older versions (8.0.8.x) can
-be added back once their maps carry method tables upstream in `rosetta-maps`.
+The bundled map covers TickTick **8.1.0.0** — that version takes a fast,
+offline, O(1) static lookup. On **any other version** the module now
+**self-heals** instead of going inactive: it spins up an on-device
+[DexKit](https://github.com/LuckyPray/DexKit) scan driven by the bundled
+[community signatures](https://github.com/xiddoc/rosetta-maps/blob/master/signatures/com.ticktick.task/signatures.yaml)
+(fetched at build time alongside the maps), locates `User` / `ProHelper` by the
+stable string constants they reference, and resolves the kept-name Pro-gate
+methods live — all through `RosettaXposed.fromMapWithSignatures(...)`. So a
+TickTick update that rotates names is a map-or-signature refresh upstream, not a
+new TickPatch build. It still degrades fail-soft: if discovery can't find a
+target (or the device has no DexKit native), the override is simply inactive and
+TickTick never crashes.
 
 ## Build from source
 
