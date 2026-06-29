@@ -106,6 +106,17 @@ android {
         jvmTarget = "17"
     }
 
+    packaging {
+        // Extract DexKit's `libdexkit.so` to the module's nativeLibraryDir (the
+        // pre-AGP-default behaviour AGP now disables) instead of leaving it
+        // compressed inside the APK. The self-heal path runs INSIDE TickTick's
+        // process and loads the module's OWN `.so` by absolute path via the
+        // module class loader's `findLibrary("dexkit")` (TickPatchHooks
+        // .ensureDexKitNativeLoaded) — which only resolves when the lib is an
+        // extracted file, not an APK-embedded entry. See rosetta-xposed#25.
+        jniLibs.useLegacyPackaging = true
+    }
+
     // Bundle the fetched maps as Java resources, exactly where the hand-copied
     // maps/<version_code>.json used to live — so BundledMaps.load("8100.json")
     // reads them off the module class loader at runtime, unchanged. The plugin
@@ -139,9 +150,11 @@ dependencies {
     // mapped version never builds a bridge.
     implementation("io.github.xiddoc.rosetta:dexkit")
 
-    // The real DexKit native bridge AAR. Ships the Android `.so` that loads on
-    // ART (NOT a desktop JVM). Only the module-as-app needs the native; the
-    // rosetta-xposed library itself never depends on it.
+    // The real DexKit native bridge AAR. Ships the Android `.so`, but DexKitBridge
+    // does NOT auto-load it and — inside the hooked app's process — it is not on
+    // the host's library path, so the module loads it itself
+    // (TickPatchHooks.ensureDexKitNativeLoaded; see rosetta-xposed#25). Only the
+    // module-as-app needs the native; the rosetta-xposed library never depends on it.
     implementation("org.luckypray:dexkit:2.2.0")
 
     // Legacy Xposed API — provided by the framework at runtime, so compileOnly.

@@ -49,6 +49,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Process
+import dalvik.system.BaseDexClassLoader
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XSharedPreferences
@@ -184,6 +185,11 @@ class TickPatchHooks : IXposedHookLoadPackage {
                     return
                 }
 
+        // DexKitBridge.create calls straight into the native lib, so make it
+        // loadable first (fail-soft). A miss here means "no DexKit on this
+        // device" — self-heal unavailable, never a crash.
+        if (!ensureDexKitNativeLoaded()) return
+
         DexKitBridge.create(app.applicationInfo.sourceDir).use { bridge ->
             val observer = XposedDiscoveryObserver()
             // A cross-restart discovery cache keyed on (app, version_code, signer):
@@ -211,6 +217,42 @@ class TickPatchHooks : IXposedHookLoadPackage {
                     "${identity.packageName}@${identity.versionName} (version_code ${identity.versionCode}); " +
                     "obfuscated names discovered on-device. Toggle decides Pro per call.",
             )
+        }
+    }
+
+    /**
+     * Make DexKit's native library loadable BEFORE [DexKitBridge.create] (which
+     * calls straight into it) — fail-soft. The module runs inside TickTick's
+     * process, whose `java.library.path` does NOT contain the module's
+     * `libdexkit.so`, so [System.loadLibrary] usually misses; fall back to
+     * [System.load] of the MODULE's own extracted `.so`, located via the module
+     * class loader's [BaseDexClassLoader.findLibrary] (visibility-independent — it
+     * reads the module APK's own lib dir, which is why the build sets
+     * `jniLibs.useLegacyPackaging = true` so the `.so` is an extracted file).
+     *
+     * Loading the DexKit native inside a hooked process is the open on-device gap
+     * tracked in rosetta-xposed#25; this is its documented "runtime load-by-path"
+     * best-effort and may still fail under embedded LSPatch (no extracted `.so`),
+     * in which case self-heal is simply unavailable on that device. Returns true
+     * when the native is (now) loadable.
+     */
+    private fun ensureDexKitNativeLoaded(): Boolean {
+        if (runCatching { System.loadLibrary("dexkit") }.isSuccess) return true
+        return runCatching {
+            val moduleCl =
+                TickPatchHooks::class.java.classLoader as? BaseDexClassLoader
+                    ?: error("module class loader is not a BaseDexClassLoader")
+            val soPath =
+                moduleCl.findLibrary("dexkit")
+                    ?: error("module APK exposes no libdexkit.so (extractNativeLibs?)")
+            System.load(soPath)
+            true
+        }.getOrElse { e ->
+            XposedBridge.log(
+                "TickPatch: DexKit native not loadable inside $TARGET_PACKAGE (${e.message}); " +
+                    "self-heal unavailable on this device (see rosetta-xposed#25). Pro override inactive.",
+            )
+            false
         }
     }
 
