@@ -53,7 +53,6 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.Process
 import android.util.Log
-import dalvik.system.BaseDexClassLoader
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XSharedPreferences
@@ -72,11 +71,16 @@ import io.github.xiddoc.rosetta.xposed.DiscoveryConfig
 import io.github.xiddoc.rosetta.xposed.RosettaXposed
 import io.github.xiddoc.rosetta.xposed.SignatureCompiler
 import org.luckypray.dexkit.DexKitBridge
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 class TickPatchHooks : IXposedHookLoadPackage {
     /** Installs the Pro hooks EXACTLY once even though Application#onCreate may fire repeatedly. */
     private val installed = AtomicBoolean(false)
+
+    /** True once DexKit's native lib is loaded into this process (load it at most once). */
+    @Volatile
+    private var dexKitNativeReady = false
 
     /** The toggle, read live from inside TickTick's process via the world-readable module prefs. */
     private val prefs by lazy {
@@ -203,12 +207,24 @@ class TickPatchHooks : IXposedHookLoadPackage {
         // DexKitBridge.create calls straight into the native lib, so make it
         // loadable first (fail-soft). A miss here means "no DexKit on this
         // device" — self-heal unavailable, never a crash.
-        if (!ensureDexKitNativeLoaded()) return
+        if (!ensureDexKitNativeLoaded(app)) return
 
-        val apkPath = app.applicationInfo.sourceDir
-        logd("self-heal: opening DexKit over $apkPath")
-        DexKitBridge.create(apkPath).use { bridge ->
-            logd("self-heal: DexKitBridge created.")
+        // Scan the app's IN-MEMORY dex via its own class loader (robust against
+        // split / reinforced APKs), falling back to the base.apk path if that
+        // variant fails. Fail-soft: a create() failure means "no Pro override".
+        val bridge =
+            runCatching { DexKitBridge.create(classLoader, true) }
+                .recoverCatching {
+                    logd("self-heal: create(classLoader, memoryDex) failed (${it.message}); retrying create(apkPath)")
+                    DexKitBridge.create(app.applicationInfo.sourceDir)
+                }.getOrElse {
+                    XposedBridge.log(
+                        "TickPatch: DexKitBridge.create failed (${it.javaClass.simpleName}: ${it.message}); self-heal aborted.",
+                    )
+                    return
+                }
+        logd("self-heal: DexKitBridge created.")
+        bridge.use {
             val observer = XposedDiscoveryObserver()
             // A cross-restart discovery cache keyed on (app, version_code, signer):
             // a healed name is reused next launch without re-scanning the dex, and
@@ -242,43 +258,93 @@ class TickPatchHooks : IXposedHookLoadPackage {
 
     /**
      * Make DexKit's native library loadable BEFORE [DexKitBridge.create] (which
-     * calls straight into it) — fail-soft. The module runs inside TickTick's
-     * process, whose `java.library.path` does NOT contain the module's
-     * `libdexkit.so`, so [System.loadLibrary] usually misses; fall back to
-     * [System.load] of the MODULE's own extracted `.so`, located via the module
-     * class loader's [BaseDexClassLoader.findLibrary] (visibility-independent — it
-     * reads the module APK's own lib dir, which is why the build sets
-     * `jniLibs.useLegacyPackaging = true` so the `.so` is an extracted file).
+     * calls straight into it) — fail-soft, loaded at most once per process.
      *
-     * Loading the DexKit native inside a hooked process is the open on-device gap
-     * tracked in rosetta-xposed#25; this is its documented "runtime load-by-path"
-     * best-effort and may still fail under embedded LSPatch (no extracted `.so`),
-     * in which case self-heal is simply unavailable on that device. Returns true
-     * when the native is (now) loadable.
+     * The module runs INSIDE TickTick's process. Its `libdexkit.so` is NOT on the
+     * host's `java.library.path`, and the LSPosed module class loader
+     * (`LspModuleClassLoader`, dex from in-memory SharedMemory) has a
+     * library-search-path that does NOT include the module's extracted `lib/<abi>`
+     * dir — so BOTH [System.loadLibrary] and `BaseDexClassLoader.findLibrary` miss
+     * even though the `.so` IS extracted on disk for a normally-installed module.
+     * (That was the old bug — it relied on `findLibrary`, which returns null here.)
+     *
+     * The fix loads by ABSOLUTE PATH from the module's OWN `nativeLibraryDir`
+     * (`/data/app/.../<module-pkg>/lib/<abi>/libdexkit.so`) — a read-only,
+     * exec-allowed (`apk_data_file`) location. We deliberately do NOT extract the
+     * `.so` to a writable dir and load it: W^X / SELinux `execmod` blocks `dlopen`
+     * from app-writable storage on modern Android. The module's native dir is found
+     * via the host [android.content.Context] (a package is always visible to
+     * itself, so no `<queries>` is needed), independent of the broken class-loader
+     * search path. `System.load` runs here, in the module class loader that defines
+     * `DexKitBridge`, which is where the native must be registered.
+     *
+     * This closes the on-device half of rosetta-xposed#25 for a normally-installed
+     * module. It can still miss under LSPatch-embedded loading (the `.so` is not
+     * extracted at all) — then self-heal is simply unavailable. Returns true once
+     * the native is loadable.
      */
-    private fun ensureDexKitNativeLoaded(): Boolean {
+    private fun ensureDexKitNativeLoaded(app: Application): Boolean {
+        if (dexKitNativeReady) return true
+        val soName = System.mapLibraryName("dexkit") // "libdexkit.so"
+
+        // 1. Cheap: already on a search path (rare in-host, but free to try).
         if (runCatching { System.loadLibrary("dexkit") }.isSuccess) {
             logd("dexkit native: loaded via System.loadLibrary(\"dexkit\")")
+            dexKitNativeReady = true
             return true
         }
-        return runCatching {
-            val moduleCl =
-                TickPatchHooks::class.java.classLoader as? BaseDexClassLoader
-                    ?: error("module class loader is not a BaseDexClassLoader")
-            val soPath =
-                moduleCl.findLibrary("dexkit")
-                    ?: error("module APK exposes no libdexkit.so (extractNativeLibs?)")
-            logd("dexkit native: System.loadLibrary missed; loading by path $soPath")
-            System.load(soPath)
-            logd("dexkit native: loaded via System.load($soPath)")
-            true
-        }.getOrElse { e ->
-            XposedBridge.log(
-                "TickPatch: DexKit native not loadable inside $TARGET_PACKAGE (${e.message}); " +
-                    "self-heal unavailable on this device (see rosetta-xposed#25). Pro override inactive.",
-            )
-            false
+
+        // 2. Load by absolute path from the module's own extracted (exec-allowed) dir.
+        for ((source, dir) in moduleNativeLibDirs(app)) {
+            val so = File(dir, soName)
+            if (!so.isFile) {
+                logd("dexkit native: [$source] $soName not found in $dir")
+                continue
+            }
+            val result = runCatching { System.load(so.absolutePath) }
+            if (result.isSuccess) {
+                logd("dexkit native: loaded via System.load(${so.absolutePath}) [$source]")
+                dexKitNativeReady = true
+                return true
+            }
+            logd("dexkit native: [$source] System.load(${so.absolutePath}) failed: ${result.exceptionOrNull()?.message}")
         }
+
+        XposedBridge.log(
+            "TickPatch: DexKit native not loadable inside $TARGET_PACKAGE from the module's nativeLibraryDir " +
+                "(checked createPackageContext / PackageManager); self-heal unavailable on this device " +
+                "(see rosetta-xposed#25). Pro override inactive.",
+        )
+        return false
+    }
+
+    /**
+     * The module's OWN extracted native-library directory(ies), discovered WITHOUT
+     * the module class loader's (broken under SharedMemory loading) library-search
+     * path — via the host Context, which can always resolve the module's own
+     * package (`<queries>`-exempt). Each is an exec-allowed
+     * `/data/app/.../<module-pkg>/lib/<abi>`. Deduped, in priority order; both
+     * sources normally report the same dir, kept as belt-and-suspenders.
+     */
+    private fun moduleNativeLibDirs(app: Application): List<Pair<String, String>> {
+        val pkg = BuildConfig.APPLICATION_ID
+        val found = LinkedHashMap<String, String>() // dir -> first source that reported it
+        fun consider(
+            source: String,
+            dir: String?,
+        ) {
+            if (!dir.isNullOrBlank()) found.putIfAbsent(dir, source)
+        }
+        runCatching {
+            consider(
+                "createPackageContext",
+                app.createPackageContext(pkg, Context.CONTEXT_IGNORE_SECURITY).applicationInfo.nativeLibraryDir,
+            )
+        }.onFailure { logd("dexkit native: createPackageContext($pkg) failed: ${it.javaClass.simpleName}: ${it.message}") }
+        runCatching {
+            consider("getApplicationInfo", app.packageManager.getApplicationInfo(pkg, 0).nativeLibraryDir)
+        }.onFailure { logd("dexkit native: getApplicationInfo($pkg) failed: ${it.javaClass.simpleName}: ${it.message}") }
+        return found.entries.map { it.value to it.key }
     }
 
     /**
