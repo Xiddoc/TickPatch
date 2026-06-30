@@ -110,10 +110,12 @@ android {
         // Extract DexKit's `libdexkit.so` to the module's nativeLibraryDir (the
         // pre-AGP-default behaviour AGP now disables) instead of leaving it
         // compressed inside the APK. The self-heal path runs INSIDE TickTick's
-        // process and loads the module's OWN `.so` by absolute path via the
-        // module class loader's `findLibrary("dexkit")` (TickPatchHooks
-        // .ensureDexKitNativeLoaded) — which only resolves when the lib is an
-        // extracted file, not an APK-embedded entry. See rosetta-xposed#25.
+        // process and loads the module's OWN `.so` by absolute path from that
+        // extracted, exec-allowed dir (TickPatchHooks.ensureDexKitNativeLoaded /
+        // moduleNativeLibDirs, which discover the dir via createPackageContext,
+        // PackageManager, and the module class loader's DexPathList) — which
+        // requires the lib to be an extracted file on disk, not an APK-embedded
+        // entry. See rosetta-xposed#25.
         jniLibs.useLegacyPackaging = true
     }
 
