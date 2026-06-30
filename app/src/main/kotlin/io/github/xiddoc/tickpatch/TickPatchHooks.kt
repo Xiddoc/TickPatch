@@ -53,6 +53,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.Process
 import android.util.Log
+import dalvik.system.BaseDexClassLoader
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XSharedPreferences
@@ -269,13 +270,13 @@ class TickPatchHooks : IXposedHookLoadPackage {
      * (That was the old bug — it relied on `findLibrary`, which returns null here.)
      *
      * The fix loads by ABSOLUTE PATH from the module's OWN `nativeLibraryDir`
-     * (`/data/app/.../<module-pkg>/lib/<abi>/libdexkit.so`) — a read-only,
+     * (`/data/app/.../<module-pkg>/lib/<arch>/libdexkit.so`) — a read-only,
      * exec-allowed (`apk_data_file`) location. We deliberately do NOT extract the
      * `.so` to a writable dir and load it: W^X / SELinux `execmod` blocks `dlopen`
-     * from app-writable storage on modern Android. The module's native dir is found
-     * via the host [android.content.Context] (a package is always visible to
-     * itself, so no `<queries>` is needed), independent of the broken class-loader
-     * search path. `System.load` runs here, in the module class loader that defines
+     * from app-writable storage on modern Android. The dir is discovered by
+     * [moduleNativeLibDirs] from MULTIPLE sources (PackageManager + the module's own
+     * class loader) because no single source is guaranteed — see that method.
+     * `System.load` runs here, in the module class loader that defines
      * `DexKitBridge`, which is where the native must be registered.
      *
      * This closes the on-device half of rosetta-xposed#25 for a normally-installed
@@ -312,19 +313,32 @@ class TickPatchHooks : IXposedHookLoadPackage {
 
         XposedBridge.log(
             "TickPatch: DexKit native not loadable inside $TARGET_PACKAGE from the module's nativeLibraryDir " +
-                "(checked createPackageContext / PackageManager); self-heal unavailable on this device " +
-                "(see rosetta-xposed#25). Pro override inactive.",
+                "(tried System.loadLibrary, createPackageContext/PackageManager, and the module class loader); " +
+                "self-heal unavailable on this device (see rosetta-xposed#25). Pro override inactive.",
         )
         return false
     }
 
     /**
-     * The module's OWN extracted native-library directory(ies), discovered WITHOUT
-     * the module class loader's (broken under SharedMemory loading) library-search
-     * path — via the host Context, which can always resolve the module's own
-     * package (`<queries>`-exempt). Each is an exec-allowed
-     * `/data/app/.../<module-pkg>/lib/<abi>`. Deduped, in priority order; both
-     * sources normally report the same dir, kept as belt-and-suspenders.
+     * The module's OWN extracted native-library directory(ies), each an exec-allowed
+     * `/data/app/.../<module-pkg>/lib/<arch>`, deduped in priority order. No single
+     * source is guaranteed, so we gather from several and let the caller try each:
+     *
+     *  (a) PackageManager / Context (`createPackageContext` + `getApplicationInfo`) —
+     *      the platform-resolved EXACT dir. NOTE: this runs in TickTick's process and
+     *      queries the MODULE's (a DIFFERENT) package, so on Android 11+ it is a
+     *      cross-package lookup subject to package-visibility filtering and may throw
+     *      `NameNotFoundException` (it is NOT a package resolving itself). It works in
+     *      practice when LSPosed makes the scoped module visible to the host; we keep
+     *      it (cheap, exact) but do not RELY on it — hence (b).
+     *  (b) The module's OWN class loader's `DexPathList.nativeLibraryDirectories`
+     *      (reflection) — VISIBILITY-INDEPENDENT (no PackageManager) and already
+     *      arch-resolved (no abi→arch guesswork). It can be empty under LSPosed
+     *      SharedMemory loading (the same reason `findLibrary` misses), so it is a
+     *      fallback, not the primary.
+     *
+     * Every source is fail-soft + logged so the on-device log shows which one yielded
+     * the loadable `.so`.
      */
     private fun moduleNativeLibDirs(app: Application): List<Pair<String, String>> {
         val pkg = BuildConfig.APPLICATION_ID
@@ -335,6 +349,7 @@ class TickPatchHooks : IXposedHookLoadPackage {
         ) {
             if (!dir.isNullOrBlank()) found.putIfAbsent(dir, source)
         }
+        // (a) PackageManager / Context — exact, but a cross-package query that R+ may filter.
         runCatching {
             consider(
                 "createPackageContext",
@@ -344,7 +359,40 @@ class TickPatchHooks : IXposedHookLoadPackage {
         runCatching {
             consider("getApplicationInfo", app.packageManager.getApplicationInfo(pkg, 0).nativeLibraryDir)
         }.onFailure { logd("dexkit native: getApplicationInfo($pkg) failed: ${it.javaClass.simpleName}: ${it.message}") }
+        // (b) The module's own class loader native dirs — visibility-independent fallback.
+        runCatching {
+            classLoaderNativeLibDirs().forEach { consider("classLoaderDexPathList", it) }
+        }.onFailure { logd("dexkit native: classloader native-dir reflection failed: ${it.javaClass.simpleName}: ${it.message}") }
         return found.entries.map { it.value to it.key }
+    }
+
+    /**
+     * The module class loader's own native-library directories, via reflection on
+     * `BaseDexClassLoader.pathList` → `DexPathList.nativeLibraryDirectories` (hidden-API
+     * reflection — permitted in an LSPosed process, where hidden-API restrictions are
+     * lifted; fail-soft if not). Visibility-independent and already arch-resolved.
+     * Handles both the `List<File>` and legacy `File[]` field shapes; empty when the
+     * loader records no dirs (e.g. SharedMemory loading).
+     */
+    private fun classLoaderNativeLibDirs(): List<String> {
+        val cl = TickPatchHooks::class.java.classLoader as? BaseDexClassLoader ?: return emptyList()
+        val pathList =
+            BaseDexClassLoader::class.java
+                .getDeclaredField("pathList")
+                .apply { isAccessible = true }
+                .get(cl) ?: return emptyList()
+        val raw =
+            pathList.javaClass
+                .getDeclaredField("nativeLibraryDirectories")
+                .apply { isAccessible = true }
+                .get(pathList)
+        val files: List<*> =
+            when (raw) {
+                is List<*> -> raw
+                is Array<*> -> raw.toList()
+                else -> emptyList<Any?>()
+            }
+        return files.mapNotNull { (it as? File)?.path }
     }
 
     /**
