@@ -52,6 +52,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Process
+import android.util.Log
 import dalvik.system.BaseDexClassLoader
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
@@ -64,10 +65,12 @@ import io.github.xiddoc.rosetta.android.BundledSignatures
 import io.github.xiddoc.rosetta.android.PersistentDiscoveryCache
 import io.github.xiddoc.rosetta.core.model.CURRENT_SCHEMA_VERSION
 import io.github.xiddoc.rosetta.core.model.RosettaMap
+import io.github.xiddoc.rosetta.core.signature.SignatureSet
 import io.github.xiddoc.rosetta.dexkit.DexKitBackedIndex
 import io.github.xiddoc.rosetta.xposed.AppIdentity
 import io.github.xiddoc.rosetta.xposed.DiscoveryConfig
 import io.github.xiddoc.rosetta.xposed.RosettaXposed
+import io.github.xiddoc.rosetta.xposed.SignatureCompiler
 import org.luckypray.dexkit.DexKitBridge
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -115,6 +118,11 @@ class TickPatchHooks : IXposedHookLoadPackage {
             registerRestartReceiver(app)
 
             val identity = AndroidAppIdentity.of(app.packageManager, app.packageName)
+            logd(
+                "loaded into ${app.packageName}; identity version_code=${identity.versionCode} " +
+                    "versionName=${identity.versionName} signerHashes=${identity.signerSha256s.size}",
+            )
+            logd("toggle at install: proEnabled=${proEnabled()} (read via XSharedPreferences)")
 
             // Select the backend by the running version_code: the plugin bundles
             // each map as `maps/<version_code>.json`. A HIT takes the fast O(1)
@@ -123,8 +131,10 @@ class TickPatchHooks : IXposedHookLoadPackage {
             // version resolves the Pro gate live instead of going inactive.
             val bundledMap = runCatching { BundledMaps.load("${identity.versionCode}.json") }.getOrNull()
             if (bundledMap != null) {
+                logd("bundled map FOUND for version_code ${identity.versionCode} -> STATIC path")
                 installStaticBacked(bundledMap, identity, classLoader)
             } else {
+                logd("NO bundled map for version_code ${identity.versionCode} -> SELF-HEAL path")
                 installSelfHealing(app, identity, classLoader)
             }
         }.onFailure { e ->
@@ -187,13 +197,18 @@ class TickPatchHooks : IXposedHookLoadPackage {
                     )
                     return
                 }
+        logd("self-heal: loaded ${signatures.classes.size} signature classes: ${signatures.realNames}")
+        logSignatureReport(signatures)
 
         // DexKitBridge.create calls straight into the native lib, so make it
         // loadable first (fail-soft). A miss here means "no DexKit on this
         // device" — self-heal unavailable, never a crash.
         if (!ensureDexKitNativeLoaded()) return
 
-        DexKitBridge.create(app.applicationInfo.sourceDir).use { bridge ->
+        val apkPath = app.applicationInfo.sourceDir
+        logd("self-heal: opening DexKit over $apkPath")
+        DexKitBridge.create(apkPath).use { bridge ->
+            logd("self-heal: DexKitBridge created.")
             val observer = XposedDiscoveryObserver()
             // A cross-restart discovery cache keyed on (app, version_code, signer):
             // a healed name is reused next launch without re-scanning the dex, and
@@ -214,6 +229,8 @@ class TickPatchHooks : IXposedHookLoadPackage {
                     identity = identity,
                     discovery = DiscoveryConfig(cache = cache, observer = observer),
                 )
+            logd("self-heal: binding constructed; probing on-device class discovery...")
+            logSelfHealProbe(rosetta)
             installProHooks(rosetta)
             XposedBridge.log(
                 "TickPatch: armed (self-healing via community signatures) for " +
@@ -240,7 +257,10 @@ class TickPatchHooks : IXposedHookLoadPackage {
      * when the native is (now) loadable.
      */
     private fun ensureDexKitNativeLoaded(): Boolean {
-        if (runCatching { System.loadLibrary("dexkit") }.isSuccess) return true
+        if (runCatching { System.loadLibrary("dexkit") }.isSuccess) {
+            logd("dexkit native: loaded via System.loadLibrary(\"dexkit\")")
+            return true
+        }
         return runCatching {
             val moduleCl =
                 TickPatchHooks::class.java.classLoader as? BaseDexClassLoader
@@ -248,7 +268,9 @@ class TickPatchHooks : IXposedHookLoadPackage {
             val soPath =
                 moduleCl.findLibrary("dexkit")
                     ?: error("module APK exposes no libdexkit.so (extractNativeLibs?)")
+            logd("dexkit native: System.loadLibrary missed; loading by path $soPath")
             System.load(soPath)
+            logd("dexkit native: loaded via System.load($soPath)")
             true
         }.getOrElse { e ->
             XposedBridge.log(
@@ -285,8 +307,8 @@ class TickPatchHooks : IXposedHookLoadPackage {
      */
     private fun installProHooks(rosetta: RosettaXposed) {
         hookByRealName(rosetta, USER_CLASS, "setProType", null, pinProTypeWhenEnabled())
-        hookByRealName(rosetta, USER_CLASS, "getProType", null, forceWhenEnabled(PRO_TYPE_PRO))
-        hookByRealName(rosetta, PRO_HELPER_CLASS, "isPro", listOf(USER_CLASS), forceWhenEnabled(true))
+        hookByRealName(rosetta, USER_CLASS, "getProType", null, forceWhenEnabled("User#getProType", PRO_TYPE_PRO))
+        hookByRealName(rosetta, PRO_HELPER_CLASS, "isPro", listOf(USER_CLASS), forceWhenEnabled("ProHelper#isPro", true))
     }
 
     /**
@@ -309,10 +331,19 @@ class TickPatchHooks : IXposedHookLoadPackage {
      * boxed `true`/`Int`) while the in-app toggle is on. Setting the result in
      * the before phase short-circuits the original method.
      */
-    private fun forceWhenEnabled(value: Any): XC_MethodHook =
+    private fun forceWhenEnabled(
+        label: String,
+        value: Any,
+    ): XC_MethodHook =
         object : XC_MethodHook() {
+            private val firstFire = AtomicBoolean(true)
+
             override fun beforeHookedMethod(param: MethodHookParam) {
-                if (proEnabled()) param.result = value
+                val on = proEnabled()
+                if (BuildConfig.DEBUG && firstFire.compareAndSet(true, false)) {
+                    logd("fire: $label called (toggle=${if (on) "ON" else "off"}) -> ${if (on) "forcing result=$value" else "passthrough"}")
+                }
+                if (on) param.result = value
             }
         }
 
@@ -326,10 +357,73 @@ class TickPatchHooks : IXposedHookLoadPackage {
      */
     private fun pinProTypeWhenEnabled(): XC_MethodHook =
         object : XC_MethodHook() {
+            private val firstFire = AtomicBoolean(true)
+
             override fun beforeHookedMethod(param: MethodHookParam) {
-                if (proEnabled() && param.args.isNotEmpty()) param.args[0] = PRO_TYPE_PRO
+                val on = proEnabled()
+                if (BuildConfig.DEBUG && firstFire.compareAndSet(true, false)) {
+                    logd(
+                        "fire: User#setProType called with arg0=${param.args.getOrNull(0)} " +
+                            "(toggle=${if (on) "ON" else "off"}) -> ${if (on) "coercing to $PRO_TYPE_PRO" else "passthrough"}",
+                    )
+                }
+                if (on && param.args.isNotEmpty()) param.args[0] = PRO_TYPE_PRO
             }
         }
+
+    // ---- Debug diagnostics (BuildConfig.DEBUG only) -------------------------
+
+    /** Verbose, debug-build-only diagnostics routed to the LSPosed log under a [DBG] tag. */
+    private fun logd(msg: String) {
+        if (BuildConfig.DEBUG) XposedBridge.log("TickPatch[DBG]: $msg")
+    }
+
+    /**
+     * Log what the bundled community signatures can (and cannot) drive, BEFORE any
+     * on-device scan — a static check via [SignatureCompiler.report]. The telling
+     * line is whether each Pro-gate class produced a locatable hint at all: ABSENT
+     * means no class anchor was harvested (discovery can never find it); present
+     * lists the anchors DexKit will match against the (possibly renamed) app.
+     */
+    private fun logSignatureReport(signatures: SignatureSet) {
+        if (!BuildConfig.DEBUG) return
+        runCatching {
+            val report = SignatureCompiler.report(signatures)
+            logd("compile: ${report.hints.size} classes have locatable hints")
+            if (report.unlocatableClasses.isNotEmpty()) {
+                logd("compile: UNLOCATABLE (no class anchor) = ${report.unlocatableClasses}")
+            }
+            for (c in PRO_GATE_CLASSES) {
+                val h = report.hints[c]
+                logd(
+                    "compile: hint[$c] = " +
+                        if (h == null) {
+                            "ABSENT — cannot locate this class from signatures"
+                        } else {
+                            "anchors=${h.anchors} regexAnchors=${h.regexAnchors} methodHints=${h.methods.map { it.realName }}"
+                        },
+                )
+            }
+            report.skippedSignatures
+                .filter { it.realName in PRO_GATE_CLASSES }
+                .forEach { logd("compile: skipped [${it.realName}] '${it.signature}' — ${it.reason}") }
+        }.onFailure { logd("compile: SignatureCompiler.report threw ${it.javaClass.simpleName}: ${it.message}") }
+    }
+
+    /**
+     * Probe whether each Pro-gate CLASS is discoverable on-device, before hooking.
+     * `useClass(c).load()` runs the same C1-guarded discovery the method hooks use
+     * (and caches it, so this adds no extra DexKit scan): success logs the obf FQN
+     * it located; failure logs exactly why (anchor not found / not unique / guard).
+     */
+    private fun logSelfHealProbe(rosetta: RosettaXposed) {
+        if (!BuildConfig.DEBUG) return
+        for (c in PRO_GATE_CLASSES) {
+            runCatching { rosetta.useClass(c).load() }
+                .onSuccess { logd("probe: located+loaded $c -> ${it.name}") }
+                .onFailure { logd("probe: FAILED to locate/load $c — ${it.javaClass.simpleName}: ${it.message}") }
+        }
+    }
 
     /**
      * Resolve [realClass]#[realMethod] (optionally disambiguated by [argTypes])
@@ -344,10 +438,18 @@ class TickPatchHooks : IXposedHookLoadPackage {
         callback: XC_MethodHook,
     ) {
         runCatching {
-            rosetta.method(realClass, realMethod, argTypes).hook(RosettaLegacyHooker.legacy(callback))
+            val target = rosetta.method(realClass, realMethod, argTypes)
+            logd(
+                "resolve: $realClass#$realMethod -> " +
+                    "${target.resolved.className}#${target.resolved.obfName}${target.resolved.signature}",
+            )
+            target.hook(RosettaLegacyHooker.legacy(callback))
             XposedBridge.log("TickPatch: hooked $realClass#$realMethod by real name.")
         }.onFailure { e ->
-            XposedBridge.log("TickPatch: could not hook $realClass#$realMethod: ${e.message}")
+            XposedBridge.log("TickPatch: could not hook $realClass#$realMethod: ${e.javaClass.simpleName}: ${e.message}")
+            if (BuildConfig.DEBUG) {
+                XposedBridge.log("TickPatch[DBG]: resolve FAILED $realClass#$realMethod\n${Log.getStackTraceString(e)}")
+            }
         }
     }
 
@@ -393,6 +495,9 @@ class TickPatchHooks : IXposedHookLoadPackage {
 
         const val USER_CLASS = "com.ticktick.task.data.User"
         const val PRO_HELPER_CLASS = "com.ticktick.task.helper.pro.ProHelper"
+
+        /** The classes the Pro gate lives on — the focus of the debug diagnostics. */
+        val PRO_GATE_CLASSES = listOf(USER_CLASS, PRO_HELPER_CLASS)
 
         /** `User.proType == 1` means Pro (research/com.ticktick.task/docs/premium.md §2.1). */
         const val PRO_TYPE_PRO = 1
