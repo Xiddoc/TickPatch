@@ -61,6 +61,8 @@ import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import io.github.xiddoc.rosetta.android.BundledMaps
 import io.github.xiddoc.rosetta.android.BundledSignatures
+import io.github.xiddoc.rosetta.android.NativeLibraryLoadPlan
+import io.github.xiddoc.rosetta.android.NativeLoadKind
 import io.github.xiddoc.rosetta.android.PersistentDiscoveryCache
 import io.github.xiddoc.rosetta.core.model.CURRENT_SCHEMA_VERSION
 import io.github.xiddoc.rosetta.core.model.RosettaMap
@@ -246,50 +248,75 @@ class TickPatchHooks : IXposedHookLoadPackage {
      * Make DexKit's native library loadable BEFORE [DexKitBridge.create] (which
      * calls straight into it) — fail-soft, latched in [dexKitNativeReady].
      *
-     * The module runs inside TickTick's process. TickTick's `java.library.path`
-     * does NOT contain the module's `libdexkit.so`, and under LSPosed the module
-     * class loader (an in-memory `LspModuleClassLoader`) has an empty native
-     * search path too — so [System.loadLibrary] almost always misses. The fix is
-     * to [System.load] the MODULE's OWN extracted `.so` by absolute path from the
-     * module's `nativeLibraryDir`, discovered three ways (first hit wins):
+     * The module runs inside TickTick's process, whose `nativeLibraryDir` does
+     * NOT contain the module's `libdexkit.so`, so a bare [System.loadLibrary]
+     * usually misses. Rosetta's [NativeLibraryLoadPlan] turns the runtime facts
+     * into an ordered ladder we walk until one attempt loads (see its docs and
+     * `rosetta-xposed`'s `docs/reference/lspatch-non-root.md`):
      *
-     *   1. `createPackageContext(self).applicationInfo.nativeLibraryDir` — the
-     *      module's extracted lib dir, which LSPosed grants the host visibility to;
-     *   2. `PackageManager.getApplicationInfo(self).nativeLibraryDir` — same value
-     *      via PM (cross-package, so on Android 11+ it may be `<queries>`-filtered,
-     *      hence not the only path);
-     *   3. the module class loader's `DexPathList.nativeLibraryDirectories` read by
-     *      reflection — a visibility-independent fallback that needs no PM grant.
+     *   1. `System.loadLibrary("dexkit")` — hits when the module is INSTALLED
+     *      (rooted LSPosed) or the `.so` was merged into the host's own `lib/`.
+     *   2. `System.load("<installedApkPath>!/…/libdexkit.so")` — maps the `.so`
+     *      DIRECTLY out of an installed host APK (`sourceDir` + splits) via the
+     *      bionic `apk!/entry` linker form. An installed APK under `/data/app`
+     *      carries the exec-allowed `apk_data_file` label, so this is the ONLY
+     *      W^X-safe route on **non-root LSPatch**, where the module is not
+     *      installed and there is no extracted `.so` — provided the `.so` was
+     *      embedded in the patched host APK (see the repo's non-root recipe).
+     *      This is exactly how LSPatch loads its own `liblspatch.so`.
+     *   3. `System.load("<moduleNativeLibDir>/libdexkit.so")` — an extracted,
+     *      exec-allowed copy in a discovered module `nativeLibraryDir` (rooted).
      *
-     * The lib must be an EXTRACTED file on disk (not an APK-embedded entry), which
-     * is why the build sets `jniLibs.useLegacyPackaging = true`. We never copy the
-     * `.so` to a writable dir and load from there — SELinux W^X / `execmod` blocks
-     * executing a lib from an app-writable path. Under embedded LSPatch (no
-     * extracted `.so`) all three may miss, in which case self-heal is simply
-     * unavailable on that device (the open on-device gap tracked in
-     * rosetta-xposed#25). Returns true when the native is (now) loadable.
+     * We deliberately never extract the `.so` to a writable dir and load from
+     * there: a process targeting API 29+ is SELinux `neverallow`ed from executing
+     * any `app_data_file`, so that always fails on stock Android 10+ — which is
+     * why step 2 maps from an installed APK instead. Returns true once the native
+     * is (now) loadable; false leaves self-heal simply unavailable, never a crash.
      */
     private fun ensureDexKitNativeLoaded(app: Application): Boolean {
         if (dexKitNativeReady) return true
-        if (runCatching { System.loadLibrary("dexkit") }.isSuccess) {
-            dexKitNativeReady = true
-            return true
-        }
-        val soName = System.mapLibraryName("dexkit")
-        for ((source, dir) in moduleNativeLibDirs(app)) {
-            val so = File(dir, soName)
-            if (so.isFile && runCatching { System.load(so.absolutePath) }.isSuccess) {
-                XposedBridge.log("TickPatch: DexKit native loaded from ${so.absolutePath} [$source].")
+        val plan =
+            NativeLibraryLoadPlan.forLibrary(
+                libraryName = DEXKIT_LIB,
+                supportedAbis = Build.SUPPORTED_ABIS?.toList().orEmpty(),
+                installedApkPaths = installedApkPaths(app),
+                extractedNativeDirs = moduleNativeLibDirs(app).map { it.second },
+            )
+        for (step in plan) {
+            val loaded =
+                runCatching {
+                    when (step.kind) {
+                        NativeLoadKind.LOAD_LIBRARY -> System.loadLibrary(step.argument)
+                        NativeLoadKind.LOAD_PATH -> System.load(step.argument)
+                    }
+                }.isSuccess
+            if (loaded) {
+                XposedBridge.log("TickPatch: DexKit native loaded via ${step.kind} ${step.argument}.")
                 dexKitNativeReady = true
                 return true
             }
         }
         XposedBridge.log(
-            "TickPatch: DexKit native not loadable inside $TARGET_PACKAGE (tried System.loadLibrary, " +
-                "PackageManager, and the module class loader); self-heal unavailable on this device " +
-                "(see rosetta-xposed#25). Pro override inactive.",
+            "TickPatch: DexKit native not loadable inside $TARGET_PACKAGE (walked the full load ladder: " +
+                "System.loadLibrary, installed-APK apk!/entry maps, and module nativeLibraryDirs). On " +
+                "non-root LSPatch, embed libdexkit.so in the patched host APK (see rosetta-xposed " +
+                "docs/reference/lspatch-non-root.md). Self-heal unavailable; Pro override inactive.",
         )
         return false
+    }
+
+    /**
+     * The host process's INSTALLED APK paths — `applicationInfo.sourceDir` plus
+     * any `splitSourceDirs` — the only W^X-safe source the `apk!/entry` load step
+     * ([ensureDexKitNativeLoaded] step 2) can map a `.so` out of, because they
+     * live under `/data/app` with the exec-allowed `apk_data_file` SELinux label.
+     */
+    private fun installedApkPaths(app: Application): List<String> {
+        val info = app.applicationInfo
+        val paths = mutableListOf<String>()
+        info.sourceDir?.let { paths.add(it) }
+        info.splitSourceDirs?.let { paths.addAll(it) }
+        return paths
     }
 
     /**
@@ -381,11 +408,18 @@ class TickPatchHooks : IXposedHookLoadPackage {
      * [RosettaXposed.fromMapWithSignatures] expects when no published map exists:
      * it carries no classes (so every name resolves via the signatures) and no
      * `signer_sha256` (so the signer guard is a no-op even with an identity).
+     *
+     * `app` is pinned to [APP_ID] (the TickTick DEX namespace), NOT
+     * `identity.packageName`: the map's `app` drives Rosetta's C1 target-namespace
+     * guard, and the classes we discover are always `com.ticktick.task.*` — even
+     * when the running package is a RENAMED coexistence build ([TARGET_PACKAGE] !=
+     * [APP_ID]). Renaming an APK never renames its DEX classes, so the namespace
+     * the guard must allow is the fixed [APP_ID].
      */
     private fun emptyMapFor(identity: AppIdentity): RosettaMap =
         RosettaMap(
             schemaVersion = CURRENT_SCHEMA_VERSION,
-            app = identity.packageName,
+            app = APP_ID,
             version = identity.versionName ?: "unknown",
             versionCode = identity.versionCode,
             classes = emptyMap(),
@@ -476,10 +510,28 @@ class TickPatchHooks : IXposedHookLoadPackage {
     }
 
     private companion object {
-        const val TARGET_PACKAGE = "com.ticktick.task"
+        /**
+         * The INSTALLED package this module hooks into — build-time configurable
+         * ([BuildConfig.TARGET_PACKAGE], default [APP_ID]) so a coexistence build
+         * can target a RENAMED TickTick clone that installs alongside the real
+         * app (e.g. for on-device dogfooding without uninstalling TickTick). See
+         * `README.md` (Testing without uninstalling TickTick).
+         */
+        val TARGET_PACKAGE: String = BuildConfig.TARGET_PACKAGE
+
+        /**
+         * The fixed TickTick DEX namespace: the package the resolved classes live
+         * in ([USER_CLASS] / [PRO_HELPER_CLASS]) and the C1 target-namespace the
+         * map declares. This never changes even when [TARGET_PACKAGE] is renamed,
+         * because renaming an APK does not rename its compiled classes.
+         */
+        const val APP_ID = "com.ticktick.task"
 
         const val USER_CLASS = "com.ticktick.task.data.User"
         const val PRO_HELPER_CLASS = "com.ticktick.task.helper.pro.ProHelper"
+
+        /** DexKit's native library base name (`libdexkit.so`), loaded on the self-heal path. */
+        const val DEXKIT_LIB = "dexkit"
 
         /** `User.proType == 1` means Pro (research/com.ticktick.task/docs/premium.md §2.1). */
         const val PRO_TYPE_PRO = 1

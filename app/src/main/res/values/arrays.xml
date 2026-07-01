@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The app(s) this module wants to be loaded into (LSPosed scope). -->
+    <!-- The app(s) this module wants to be loaded into (LSPosed scope). The
+         item resolves the generated `rosetta_target_package` string (default
+         com.ticktick.task; set by `-PtickpatchTargetPackage` for a renamed
+         coexistence build) so the scope tracks the hooked package. (LSPatch
+         local mode ignores scope and loads into its host regardless; scope
+         only matters for a rooted-LSPosed load.) -->
     <string-array name="xposed_scope">
-        <item>com.ticktick.task</item>
+        <item>@string/rosetta_target_package</item>
     </string-array>
 </resources>

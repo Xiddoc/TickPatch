@@ -65,6 +65,35 @@ android {
         // semver. See .github/workflows/release-apk.yml.
         versionCode = (project.findProperty("tickpatchVersionCode") as String?)?.toInt() ?: 1
         versionName = (project.findProperty("tickpatchVersionName") as String?) ?: "1.0.0"
+
+        // The INSTALLED package the module hooks into. Defaults to the real
+        // TickTick; override with `-PtickpatchTargetPackage=<pkg>` to build a
+        // COEXISTENCE variant that targets a renamed TickTick clone so it can be
+        // installed alongside a real TickTick for on-device dogfooding (see
+        // README.md — "Testing without uninstalling TickTick"). Threaded into:
+        //   - BuildConfig.TARGET_PACKAGE — the runtime handleLoadPackage guard,
+        //     MainActivity's relaunch target;
+        //   - the <queries> package (manifest placeholder) so the UI can see and
+        //     relaunch the (possibly renamed) app on Android 11+;
+        //   - the LSPosed `xposed_scope` array (via @string/rosetta_target_package)
+        //     so a rooted-LSPosed load is scoped to the same package.
+        // The DEX namespace (com.ticktick.task.*) is NOT this value — renaming an
+        // APK never renames its classes — so resolution/hook targets are unchanged.
+        val targetPackage = (project.findProperty("tickpatchTargetPackage") as String?) ?: "com.ticktick.task"
+        buildConfigField("String", "TARGET_PACKAGE", "\"$targetPackage\"")
+        resValue("string", "rosetta_target_package", targetPackage)
+        manifestPlaceholders["targetPackage"] = targetPackage
+
+        ndk {
+            // Ship DexKit's native for arm64-v8a ONLY. The `.so` (from the DexKit
+            // AAR) is dead weight except on the self-heal path, and every current
+            // real device is arm64 — so the other three ABIs (armeabi-v7a, x86,
+            // x86_64) would ~4x the native payload for no practical gain. Add them
+            // back here if you need 32-bit / emulator self-heal. (The static map
+            // path never touches DexKit, so a mapped version is unaffected on any
+            // ABI.)
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildFeatures {
