@@ -420,7 +420,13 @@ class MainActivity : Activity() {
         }
 
     private companion object {
-        const val TICKTICK_PACKAGE = "com.ticktick.task"
+        /**
+         * The installed TickTick package this UI relaunches / inspects. Follows
+         * the build-time [BuildConfig.TARGET_PACKAGE] (default `com.ticktick.task`)
+         * so a renamed coexistence build points at its own patched clone; the
+         * `<queries>` entry is generated from the same value.
+         */
+        val TICKTICK_PACKAGE: String = BuildConfig.TARGET_PACKAGE
 
         /** Pause after the kill broadcast before relaunching, so the old process is gone. */
         const val RELAUNCH_DELAY_MS = 900L

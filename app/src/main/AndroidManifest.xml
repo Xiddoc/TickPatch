@@ -2,11 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Android 11+ (targetSdk 30+) filters package visibility: without this,
-         getLaunchIntentForPackage("com.ticktick.task") returns null and the
-         UI wrongly reports TickTick as "not installed". Declare the one
-         package we interact with so we can see and relaunch it. -->
+         getLaunchIntentForPackage(target) returns null and the UI wrongly
+         reports TickTick as "not installed". Declare the one package we
+         interact with so we can see and relaunch it. `${targetPackage}` is the
+         build-time target (default com.ticktick.task; overridable via
+         -PtickpatchTargetPackage for a renamed coexistence build). -->
     <queries>
-        <package android:name="com.ticktick.task" />
+        <package android:name="${targetPackage}" />
     </queries>
 
     <application

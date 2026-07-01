@@ -51,15 +51,36 @@ jobs:
                   path: TickPatch
                   fetch-depth: 0
 
-            # The Rosetta resolver library (composite build dependency). Pinned to
-            # master. If rosetta-xposed is PRIVATE, add a PAT with repo read access
-            # as the ROSETTA_XPOSED_PAT secret; for a public repo the default token
-            # works.
+            # The Rosetta resolver library (composite build dependency). A change
+            # here may need a matching rosetta-xposed change on a same-named branch
+            # (e.g. a new API this module calls). Build against rosetta-xposed's
+            # branch of the SAME name when it exists, else fall back to master —
+            # keeps a cross-repo PR green without a merge-order dance, and reverts
+            # to master automatically once both land (on push-to-master, head_ref
+            # is empty so ref_name=master resolves to master). If rosetta-xposed is
+            # PRIVATE, add a PAT with repo read access as the ROSETTA_XPOSED_PAT
+            # secret.
+            - name: Resolve rosetta-xposed ref (match this branch, else master)
+              id: rref
+              env:
+                  GH_TOKEN: ${{ secrets.ROSETTA_XPOSED_PAT || github.token }}
+                  CANDIDATE: ${{ github.head_ref || github.ref_name }}
+              run: |
+                  if git ls-remote --exit-code --heads \
+                      "https://x-access-token:${GH_TOKEN}@github.com/Xiddoc/rosetta-xposed.git" \
+                      "$CANDIDATE" >/dev/null 2>&1; then
+                    echo "Using matching rosetta-xposed branch: $CANDIDATE"
+                    echo "ref=$CANDIDATE" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "No matching rosetta-xposed branch; using master."
+                    echo "ref=master" >> "$GITHUB_OUTPUT"
+                  fi
+
             - name: Check out rosetta-xposed (composite build)
               uses: actions/checkout@v5
               with:
                   repository: Xiddoc/rosetta-xposed
-                  ref: master
+                  ref: ${{ steps.rref.outputs.ref }}
                   path: rosetta-xposed
                   token: ${{ secrets.ROSETTA_XPOSED_PAT || github.token }}
 
